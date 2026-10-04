@@ -1,0 +1,8 @@
+/target
+/debian/cargo-home
+/debian/.debhelper
+/debian/ishtaria-*/
+/debian/files
+/debian/*.substvars
+/debian/debhelper-build-stamp
+/Cargo.lock

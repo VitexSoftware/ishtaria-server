@@ -1,0 +1,14 @@
+[package]
+name = "ishtaria-server"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "Authoritative world server of Ishtaria – a federated, persistent virtual planet."
+repository = "https://github.com/VitexSoftware/ishtaria-server"
+authors = ["Vítězslav Dvořák <cybervitexus@gmail.com>"]
+rust-version = "1.80"
+
+[dependencies]
+ishtaria-core = { git = "https://github.com/VitexSoftware/ishtaria-core", branch = "main" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"

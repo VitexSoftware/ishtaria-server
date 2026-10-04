@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+    if ! getent passwd ishtaria >/dev/null; then
+        adduser --system --group --home /var/lib/ishtaria --no-create-home ishtaria
+    fi
+    chgrp ishtaria /etc/ishtaria/server.toml
+    chmod 0640 /etc/ishtaria/server.toml
+fi
+#DEBHELPER#

@@ -1,0 +1,17 @@
+Source: ishtaria-server
+Section: net
+Priority: optional
+Maintainer: Vítězslav Dvořák <cybervitexus@gmail.com>
+Build-Depends: debhelper-compat (= 13), cargo, rustc (>= 1.80), pkgconf
+Standards-Version: 4.7.0
+Homepage: https://github.com/VitexSoftware/ishtaria-server
+Rules-Requires-Root: no
+
+Package: ishtaria-server
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, adduser
+Recommends: ishtaria-content
+Description: authoritative world server of the Ishtaria virtual planet
+ Ishtaria is a federated, persistent virtual planet of Earth-like size.
+ This package runs one world: its simulation, persistence and the
+ federation endpoint used to link worlds through portals.

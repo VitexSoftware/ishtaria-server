@@ -1,0 +1,6 @@
+# Ishtaria world server configuration
+# DNS name of this world; becomes part of every player and item id.
+server_name = "ishtaria.example.org"
+# Rules shared with federated worlds (must match peers' major version).
+ruleset = "core-rules@1.0"
+listen = "0.0.0.0:7400"
