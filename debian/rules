@@ -5,10 +5,10 @@ export CARGO_HOME = $(CURDIR)/debian/cargo-home
 	dh $@
 
 override_dh_auto_build:
-	cargo build --release
+	cargo build --release --locked
 
 override_dh_auto_test:
-	cargo test --release
+	cargo test --release --locked
 
 override_dh_auto_install:
 	install -D -m 0755 target/release/ishtaria-server debian/ishtaria-server/usr/bin/ishtaria-server
