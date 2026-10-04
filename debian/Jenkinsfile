@@ -3,13 +3,13 @@
 // Current version of this Pipeline https://github.com/VitexSoftware/BuildImages/blob/main/Test/Jenkinsfile
 
 String[] distributions = [
-			'debian:bookworm',
+			// 'debian:bookworm', // Disabled: only Debian 13+ and Ubuntu 26.04+ are supported.
 			'debian:trixie',
 			// 'debian:forky', // Disabled: Forky is still unstable/research-only.
 			//                 // The full Debian package ecosystem is not yet available for Forky.
 			//                 // Re-enable once the stack builds cleanly for Forky.
-			'ubuntu:jammy',
-			'ubuntu:noble',
+			// 'ubuntu:jammy', // Disabled: see above.
+			// 'ubuntu:noble', // Disabled: see above.
 			'ubuntu:resolute',
 ]
 
