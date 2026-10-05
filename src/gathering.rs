@@ -47,7 +47,9 @@ struct Leaves {
 struct Resource {
     id: String,
     kind: String,
-    tool: String,
+    /// Tools that work on it and the work points of one swing with each. The pickaxe
+    /// fells a tree too, but with half the effect of the axe.
+    tools: std::collections::HashMap<String, i32>,
     hits: i32,
     regrow_minutes: i64,
     models: Vec<String>,
@@ -66,6 +68,8 @@ struct Resources {
     cooldown_ms: i64,
     stamina_cost: i32,
     forget_hits_after_minutes: i64,
+    /// Work points of one swing of the best tool; a resource needs `hits` such swings.
+    best_swing_points: i32,
     resources: Vec<Resource>,
 }
 
@@ -115,16 +119,23 @@ fn recipes() -> &'static Recipes {
 #[derive(Serialize)]
 pub(super) struct HarvestInfo {
     kind: &'static str,
-    tool: &'static str,
+    /// The best tool, and every tool that works.
+    tool: String,
+    tools: Vec<String>,
     hits: i32,
 }
 
 /// Harvest details for a model, or nothing when it is only scenery.
 pub(super) fn harvest_info(model: &str) -> Option<HarvestInfo> {
-    resource_of(model).map(|resource| HarvestInfo {
-        kind: &resource.kind,
-        tool: &resource.tool,
-        hits: resource.hits,
+    resource_of(model).map(|resource| {
+        let mut tools: Vec<(&String, &i32)> = resource.tools.iter().collect();
+        tools.sort_by(|first, second| second.1.cmp(first.1).then(first.0.cmp(second.0)));
+        HarvestInfo {
+            kind: &resource.kind,
+            tool: tools[0].0.clone(),
+            tools: tools.into_iter().map(|(tool, _)| tool.clone()).collect(),
+            hits: resource.hits,
+        }
     })
 }
 
@@ -181,7 +192,7 @@ pub(super) fn resource_info(model: &str) -> Option<ResourceInfo> {
 pub(super) fn configured_items() -> Vec<String> {
     let mut items: Vec<String> = Vec::new();
     for resource in &resources().resources {
-        items.push(resource.tool.clone());
+        items.extend(resource.tools.keys().cloned());
         items.extend(resource.drops.iter().map(|drop| drop.item.clone()));
         items.extend(resource.bonus.iter().map(|bonus| bonus.item.clone()));
     }
@@ -201,6 +212,7 @@ pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/players/me/harvest", post(harvest))
         .route("/players/me/craft", post(craft))
+        .route("/players/me/equip", post(equip).delete(unequip))
         .route("/recipes", get(list_recipes))
 }
 
@@ -222,7 +234,8 @@ struct HarvestReply {
     object_id: String,
     resource: &'static str,
     kind: &'static str,
-    tool: &'static str,
+    /// The tool in hand that was used.
+    tool: String,
     /// `hit` while the object still stands, `depleted` once harvested.
     state: &'static str,
     hits: i32,
@@ -346,16 +359,14 @@ async fn harvest(
     if stamina < config.stamina_cost {
         return Err(status(StatusCode::CONFLICT, "too exhausted"));
     }
-    let owns: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = $2)",
-    )
-    .bind(player_id)
-    .bind(&resource.tool)
-    .fetch_one(&mut *transaction)
-    .await?;
-    if !owns {
-        return Err(status(StatusCode::CONFLICT, "required tool missing"));
-    }
+    // Only the tool in hand counts, and only while the character still owns it.
+    let equipped: Option<String> = sqlx::query_scalar("SELECT hand FROM player_equipment WHERE player_id = $1 AND EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = hand)")
+        .bind(player_id).fetch_optional(&mut *transaction).await?;
+    let tool = equipped.ok_or_else(|| status(StatusCode::CONFLICT, "required tool missing"))?;
+    let points = *resource
+        .tools
+        .get(&tool)
+        .ok_or_else(|| status(StatusCode::CONFLICT, "required tool missing"))?;
     sqlx::query("INSERT INTO world_object_state (world_id, object_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
         .bind(state.world_id).bind(&input.object_id).execute(&mut *transaction).await?;
     let (hits, depleted, stale): (i32, bool, bool) = sqlx::query_as("SELECT hits, coalesce(depleted_until > now(), false), last_hit_at < now() - make_interval(mins => $3) FROM world_object_state WHERE world_id = $1 AND object_id = $2 FOR UPDATE")
@@ -364,12 +375,14 @@ async fn harvest(
     if depleted {
         return Err(status(StatusCode::CONFLICT, "already harvested"));
     }
-    let hits = if stale { 1 } else { hits + 1 };
+    // Hits are stored as work points: a swing of the axe on a tree is worth two, of the pickaxe one.
+    let progress = if stale { points } else { hits + points };
+    let needed = resource.hits * config.best_swing_points;
     sqlx::query("UPDATE players SET stamina = stamina - $2, last_gathered_at = clock_timestamp() WHERE id = $1")
         .bind(player_id).bind(config.stamina_cost).execute(&mut *transaction).await?;
     let mut items = Vec::new();
     let mut regrow_at = None;
-    if hits >= resource.hits {
+    if progress >= needed {
         items = add_items(&mut transaction, player_id, &roll(resource)).await?;
         let until: i64 = sqlx::query_scalar("UPDATE world_object_state SET hits = 0, last_hit_at = now(), depleted_until = now() + make_interval(mins => $3) WHERE world_id = $1 AND object_id = $2 RETURNING extract(epoch FROM depleted_until)::bigint")
             .bind(state.world_id).bind(&input.object_id).bind(resource.regrow_minutes as i32)
@@ -377,7 +390,7 @@ async fn harvest(
         regrow_at = Some(until);
     } else {
         sqlx::query("UPDATE world_object_state SET hits = $3, last_hit_at = now() WHERE world_id = $1 AND object_id = $2")
-            .bind(state.world_id).bind(&input.object_id).bind(hits)
+            .bind(state.world_id).bind(&input.object_id).bind(progress)
             .execute(&mut *transaction).await?;
     }
     transaction.commit().await?;
@@ -388,17 +401,67 @@ async fn harvest(
         object_id: input.object_id,
         resource: &resource.id,
         kind: &resource.kind,
-        tool: &resource.tool,
+        tool,
         state: if regrow_at.is_some() {
             "depleted"
         } else {
             "hit"
         },
-        hits: if regrow_at.is_some() { 0 } else { hits },
-        hits_required: resource.hits,
+        // Swings with the tool in hand: more of them are needed with a weaker tool.
+        hits: if regrow_at.is_some() {
+            0
+        } else {
+            (progress + points - 1) / points
+        },
+        hits_required: (needed + points - 1) / points,
         items,
         player: players::profile(&state, player_id).await?,
     }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Equip {
+    item_id: String,
+}
+
+/// Puts a tool or weapon from the inventory in hand.
+async fn equip(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<Equip>,
+) -> Result<Json<players::Player>, Error> {
+    let player_id = players::player_id(&state, &players::token_hash(&headers)?).await?;
+    let mut transaction = state.pool.begin().await?;
+    if !super::survival::lock_alive(&mut transaction, state.world_id, player_id).await? {
+        let notice = super::survival::obituary(&mut transaction, player_id).await?;
+        transaction.commit().await?;
+        return Err(Error::Obituary(notice));
+    }
+    let category: Option<String> = sqlx::query_scalar("SELECT category FROM item_types JOIN player_inventory ON player_inventory.item_id = item_types.id WHERE player_id = $1 AND item_types.id = $2")
+        .bind(player_id).bind(&input.item_id).fetch_optional(&mut *transaction).await?;
+    match category.as_deref() {
+        None => return Err(status(StatusCode::CONFLICT, "item not found")),
+        Some("tool" | "weapon") => {}
+        Some(_) => return Err(status(StatusCode::CONFLICT, "this item cannot be equipped")),
+    }
+    sqlx::query("INSERT INTO player_equipment (player_id, hand) VALUES ($1, $2) ON CONFLICT (player_id) DO UPDATE SET hand = EXCLUDED.hand")
+        .bind(player_id).bind(&input.item_id).execute(&mut *transaction).await?;
+    transaction.commit().await?;
+    Ok(Json(players::profile(&state, player_id).await?))
+}
+
+/// Takes the item out of hand.
+async fn unequip(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<players::Player>, Error> {
+    let player_id = players::player_id(&state, &players::token_hash(&headers)?).await?;
+    sqlx::query("DELETE FROM player_equipment WHERE player_id = $1")
+        .bind(player_id)
+        .execute(&state.pool)
+        .await?;
+    Ok(Json(players::profile(&state, player_id).await?))
 }
 
 #[derive(Deserialize)]
@@ -565,9 +628,19 @@ mod unit_tests {
 
     #[test]
     fn configuration_is_consistent() {
-        for resource in &resources().resources {
+        let config = resources();
+        for resource in &config.resources {
             assert!(
-                ["axe", "pickaxe"].contains(&resource.tool.as_str()),
+                !resource.tools.is_empty()
+                    && resource
+                        .tools
+                        .iter()
+                        .all(|(tool, points)| ["axe", "pickaxe"].contains(&tool.as_str())
+                            && (1..=config.best_swing_points).contains(points))
+                    && resource
+                        .tools
+                        .values()
+                        .any(|points| *points == config.best_swing_points),
                 "{}",
                 resource.id
             );

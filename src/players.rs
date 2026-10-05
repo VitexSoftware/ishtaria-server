@@ -57,6 +57,14 @@ pub(super) struct Player {
     inventory: Option<super::survival::Inventory>,
     #[sqlx(skip)]
     position: Option<Position>,
+    #[sqlx(skip)]
+    equipment: Equipment,
+}
+
+/// What the character holds in hand; `None` when nothing is held or the item is no longer owned.
+#[derive(Serialize, Default)]
+pub(super) struct Equipment {
+    hand: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -195,6 +203,8 @@ pub(super) async fn profile(state: &AppState, player_id: i64) -> Result<Player, 
     player.life = Some(super::survival::life(&mut transaction, player_id).await?);
     player.inventory = Some(super::survival::inventory(&mut transaction, player_id).await?);
     player.position = sqlx::query_as("SELECT position_x AS x, position_y AS y, position_z AS z, movement_sequence::text AS sequence, movement_airborne AS airborne, movement_support AS on_object FROM players WHERE id = $1 AND position_x IS NOT NULL")
+        .bind(player_id).fetch_optional(&mut *transaction).await?;
+    player.equipment.hand = sqlx::query_scalar("SELECT hand FROM player_equipment WHERE player_id = $1 AND EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = hand)")
         .bind(player_id).fetch_optional(&mut *transaction).await?;
     transaction.commit().await?;
     Ok(player)

@@ -8,7 +8,10 @@
     {
       "id": "pine_tree",
       "kind": "tree",
-      "tool": "axe",
+      "tools": {
+        "axe": 2,
+        "pickaxe": 1
+      },
       "hits": 5,
       "regrow_minutes": 90,
       "models": [
@@ -41,7 +44,10 @@
     {
       "id": "palm_tree",
       "kind": "tree",
-      "tool": "axe",
+      "tools": {
+        "axe": 2,
+        "pickaxe": 1
+      },
       "hits": 4,
       "regrow_minutes": 90,
       "models": [
@@ -70,7 +76,10 @@
     {
       "id": "oak_tree",
       "kind": "tree",
-      "tool": "axe",
+      "tools": {
+        "axe": 2,
+        "pickaxe": 1
+      },
       "hits": 6,
       "regrow_minutes": 120,
       "models": [
@@ -103,7 +112,10 @@
     {
       "id": "birch_fall_tree",
       "kind": "tree",
-      "tool": "axe",
+      "tools": {
+        "axe": 2,
+        "pickaxe": 1
+      },
       "hits": 5,
       "regrow_minutes": 90,
       "models": [
@@ -132,7 +144,10 @@
     {
       "id": "birch_tree",
       "kind": "tree",
-      "tool": "axe",
+      "tools": {
+        "axe": 2,
+        "pickaxe": 1
+      },
       "hits": 5,
       "regrow_minutes": 90,
       "models": [
@@ -163,7 +178,9 @@
     {
       "id": "large_rock",
       "kind": "rock",
-      "tool": "pickaxe",
+      "tools": {
+        "pickaxe": 2
+      },
       "hits": 8,
       "regrow_minutes": 60,
       "models": [
@@ -205,7 +222,9 @@
     {
       "id": "small_rock",
       "kind": "rock",
-      "tool": "pickaxe",
+      "tools": {
+        "pickaxe": 2
+      },
       "hits": 4,
       "regrow_minutes": 45,
       "models": [
@@ -241,5 +260,6 @@
         }
       ]
     }
-  ]
+  ],
+  "best_swing_points": 2
 }

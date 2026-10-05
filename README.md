@@ -404,5 +404,5 @@ sites on leased land. Migration `0020_land_leases.sql`.
 `POST /players/me/harvest` (`{"object_id": …}`) fells trees and mines rocks of the generated world;
 `POST /players/me/craft` (`{"recipe": …, "count": "1"}`) and `GET /recipes` craft items. Resources are defined in
 `etc/resources.json`, recipes in `etc/recipes.json`, items by migration `0016_gathering.sql`. Axe, pickaxe and
-sword are inventory items every new character starts with. A log fills ten slots and is chopped into wood;
+sword are inventory items every new character starts with; `POST /players/me/equip` (`{"item_id": …}`) puts a tool or weapon in hand and `DELETE /players/me/equip` takes it out (`equipment.hand` in the profile, migration `0021_equipment.sql`). Only the tool in hand works: the axe fells trees, the pickaxe mines stone and also fells trees, but needs twice as many swings. A log fills ten slots and is chopped into wood;
 harvested objects are stored as changes (`world_object_state`) and grow back; a felled tree leaves a stump.

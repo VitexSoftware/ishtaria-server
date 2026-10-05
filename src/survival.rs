@@ -109,6 +109,8 @@ pub(super) struct Item {
     calories: i32,
     capacity_bonus: i32,
     asset: Option<String>,
+    /// For example `tool`, `weapon` or `food`; clients decide from it what can be equipped.
+    category: String,
 }
 
 #[derive(Serialize, FromRow)]
@@ -221,7 +223,7 @@ pub(super) async fn inventory(
     id: i64,
 ) -> Result<Inventory, Error> {
     let (capacity, used) = slots(transaction, id).await?;
-    let items = sqlx::query_as("SELECT item_id, name, quantity::text, calories, capacity_bonus, asset FROM player_inventory JOIN item_types ON item_types.id = item_id WHERE player_id = $1 AND item_id <> 'gold' ORDER BY item_id")
+    let items = sqlx::query_as("SELECT item_id, name, quantity::text, calories, capacity_bonus, asset, category FROM player_inventory JOIN item_types ON item_types.id = item_id WHERE player_id = $1 AND item_id <> 'gold' ORDER BY item_id")
         .bind(id).fetch_all(&mut **transaction).await?;
     Ok(Inventory {
         capacity,
@@ -253,6 +255,10 @@ async fn die(
     sqlx::query("INSERT INTO grave_inventory (grave_id, item_id, quantity) SELECT $1, item_id, quantity FROM player_inventory WHERE player_id = $2")
         .bind(grave_id).bind(id).execute(&mut **transaction).await?;
     sqlx::query("DELETE FROM player_inventory WHERE player_id = $1")
+        .bind(id)
+        .execute(&mut **transaction)
+        .await?;
+    sqlx::query("DELETE FROM player_equipment WHERE player_id = $1")
         .bind(id)
         .execute(&mut **transaction)
         .await?;
@@ -436,7 +442,7 @@ async fn grave(
     let mut grave: Grave = sqlx::query_as("SELECT id::text, player_uuid::text, player_name, kind, cause, died_at::text, coalesce((SELECT quantity FROM grave_inventory WHERE grave_id = graves.id AND item_id = 'gold'), 0)::text AS gold, position_x, position_y, position_z FROM graves WHERE world_id = $1 AND id = $2 FOR SHARE")
         .bind(state.world_id).bind(id).fetch_optional(&mut *transaction).await?
         .ok_or(Error::Status(StatusCode::NOT_FOUND, "grave not found"))?;
-    grave.items = sqlx::query_as("SELECT item_id, name, quantity::text, calories, capacity_bonus, asset FROM grave_inventory JOIN item_types ON item_types.id = item_id WHERE grave_id = $1 AND item_id <> 'gold' ORDER BY item_id")
+    grave.items = sqlx::query_as("SELECT item_id, name, quantity::text, calories, capacity_bonus, asset, category FROM grave_inventory JOIN item_types ON item_types.id = item_id WHERE grave_id = $1 AND item_id <> 'gold' ORDER BY item_id")
         .bind(id).fetch_all(&mut *transaction).await?;
     grave.obituary = Some(sqlx::query_as("SELECT player_name AS name, to_char(born_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS born_at, lived_days::text, lifetime_gold::text, friends_count::text FROM graves WHERE id = $1")
         .bind(id).fetch_one(&mut *transaction).await?);

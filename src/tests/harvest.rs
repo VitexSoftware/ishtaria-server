@@ -178,6 +178,16 @@ async fn trees_and_rocks_are_harvested_by_the_server(pool: PgPool) {
         "a grown-back tree can be harvested again"
     );
 
+    // Rocks need the pickaxe in hand; a character starts with the axe.
+    teleport(&pool, player_id, rock.position).await;
+    assert_eq!(
+        harvest_request(&router, &token, &rock.id).await.status(),
+        StatusCode::CONFLICT,
+        "the axe does not work on stone"
+    );
+    cooldown_reset(&pool).await;
+    let profile = response_json(equip_request(&router, &token, "pickaxe").await).await;
+    assert_eq!(profile["equipment"]["hand"], "pickaxe");
     // Rocks yield stone and sometimes rare minerals.
     teleport(&pool, player_id, rock.position).await;
     let rock_resource = crate::gathering::resource_info(&rock.model).unwrap();
@@ -219,7 +229,7 @@ async fn trees_and_rocks_are_harvested_by_the_server(pool: PgPool) {
     sqlx::query("INSERT INTO world_object_state (world_id, object_id, hits) VALUES ($1, $2, $3)")
         .bind(world_id)
         .bind(&other.id)
-        .bind(other_resource.hits - 1)
+        .bind(other_resource.hits * 2 - 1)
         .execute(&pool)
         .await
         .unwrap();
@@ -230,7 +240,7 @@ async fn trees_and_rocks_are_harvested_by_the_server(pool: PgPool) {
     assert!(terrain.object_by_id(&other.id).is_some());
     let (hits, depleted): (i32, bool) = sqlx::query_as("SELECT hits, coalesce(depleted_until > now(), false) FROM world_object_state WHERE object_id = $1")
         .bind(&other.id).fetch_one(&pool).await.unwrap();
-    assert_eq!((hits, depleted), (other_resource.hits - 1, false));
+    assert_eq!((hits, depleted), (other_resource.hits * 2 - 1, false));
 
     // An exhausted character cannot swing.
     sqlx::query("DELETE FROM player_inventory WHERE item_id LIKE 'filler-%'")
@@ -404,4 +414,185 @@ async fn item_catalog_has_categories_and_rpg_items(pool: PgPool) {
             .await
             .unwrap();
     assert_eq!((limit, multi), (1, true));
+}
+
+async fn equip_request(router: &Router, token: &str, item: &str) -> Response {
+    player_request(
+        router,
+        "POST",
+        "/players/me/equip",
+        &serde_json::json!({ "item_id": item }).to_string(),
+        token,
+    )
+    .await
+}
+
+#[sqlx::test]
+#[ignore = "requires DATABASE_URL pointing to PostgreSQL with CREATEDB permission"]
+async fn the_tool_in_hand_decides_what_can_be_harvested(pool: PgPool) {
+    let _auth_test = AUTH_TESTS.acquire().await.unwrap();
+    let world_id = initialize_spawn_world(&pool).await;
+    let state = AppState {
+        pool: pool.clone(),
+        world_id,
+    };
+    let router = app(state.clone());
+    let session = response_json(
+        player_request(
+            &router,
+            "POST",
+            "/players",
+            r#"{"username":"woodsman","password":"test-password"}"#,
+            "",
+        )
+        .await,
+    )
+    .await;
+    let token = session["token"].as_str().unwrap().to_owned();
+    assert_eq!(
+        session["player"]["equipment"]["hand"], "axe",
+        "a new character holds the axe"
+    );
+    let player_id: i64 = sqlx::query_scalar("SELECT id FROM players")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let spawn = position_of(&pool, player_id).await;
+    let terrain = movement::terrain(&state).await.unwrap();
+    let tree = find_object(&terrain, spawn, "tree");
+    let resource = crate::gathering::resource_info(&tree.model).unwrap();
+    teleport(&pool, player_id, tree.position).await;
+
+    // Only tools and weapons that the character owns can be taken in hand.
+    for (item, status) in [
+        ("apple", StatusCode::CONFLICT),
+        ("claymore", StatusCode::CONFLICT),
+        ("gold", StatusCode::CONFLICT),
+        ("sword", StatusCode::OK),
+    ] {
+        assert_eq!(
+            equip_request(&router, &token, item).await.status(),
+            status,
+            "{item}"
+        );
+    }
+    assert_eq!(
+        player_request(
+            &router,
+            "POST",
+            "/players/me/equip",
+            r#"{"item_id":"sword","x":1}"#,
+            &token
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        equip_request(&router, "", "axe").await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        harvest_request(&router, &token, &tree.id).await.status(),
+        StatusCode::CONFLICT,
+        "a sword does not fell trees"
+    );
+
+    // Nothing in hand: no work either.
+    let bare =
+        response_json(player_request(&router, "DELETE", "/players/me/equip", "", &token).await)
+            .await;
+    assert!(bare["equipment"]["hand"].is_null());
+    cooldown_reset(&pool).await;
+    assert_eq!(
+        harvest_request(&router, &token, &tree.id).await.status(),
+        StatusCode::CONFLICT
+    );
+
+    // The pickaxe fells a tree, but needs twice as many swings as the axe.
+    equip_request(&router, &token, "pickaxe").await;
+    let mut swings = 0;
+    let last = loop {
+        cooldown_reset(&pool).await;
+        let reply = response_json(harvest_request(&router, &token, &tree.id).await).await;
+        swings += 1;
+        assert_eq!(reply["tool"], "pickaxe");
+        assert_eq!(reply["hits_required"], 2 * resource.hits);
+        if reply["state"] == "depleted" {
+            break reply;
+        }
+        assert!(swings < 2 * resource.hits, "the tree should have fallen");
+    };
+    assert_eq!(
+        swings,
+        2 * resource.hits,
+        "twice the swings of the axe ({} with the axe)",
+        resource.hits
+    );
+    assert!(last["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["item_id"] == resource.log));
+
+    // The axe is the fastest tool for the same job.
+    let other = terrain
+        .objects(spawn, 16)
+        .into_iter()
+        .find(|object| {
+            crate::gathering::resource_kind(&object.model) == Some("tree") && object.id != tree.id
+        })
+        .expect("another tree");
+    let other_resource = crate::gathering::resource_info(&other.model).unwrap();
+    teleport(&pool, player_id, other.position).await;
+    equip_request(&router, &token, "axe").await;
+    let mut axe_swings = 0;
+    loop {
+        cooldown_reset(&pool).await;
+        let reply = response_json(harvest_request(&router, &token, &other.id).await).await;
+        axe_swings += 1;
+        if reply["state"] == "depleted" {
+            break;
+        }
+        assert!(axe_swings < other_resource.hits + 1);
+    }
+    assert_eq!(axe_swings, other_resource.hits);
+
+    // Mixed tools add up: a swing with a weaker tool is worth half.
+    sqlx::query("DELETE FROM world_object_state")
+        .execute(&pool)
+        .await
+        .unwrap();
+    terrain.mark_removed(&tree.id, 0, None);
+    teleport(&pool, player_id, tree.position).await;
+    let first = response_json(harvest_request(&router, &token, &tree.id).await).await;
+    assert_eq!(first["hits_required"], resource.hits);
+    let stored: i32 =
+        sqlx::query_scalar("SELECT hits FROM world_object_state WHERE object_id = $1")
+            .bind(&tree.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored, 2, "an axe swing is worth two work points");
+
+    // Giving the tool away takes it out of hand; dying clears the equipment.
+    sqlx::query("DELETE FROM player_inventory WHERE item_id = 'axe'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let profile =
+        response_json(player_request(&router, "GET", "/players/me", "", &token).await).await;
+    assert!(
+        profile["equipment"]["hand"].is_null(),
+        "a tool that is no longer owned is not in hand"
+    );
+    equip_request(&router, &token, "pickaxe").await;
+    survival::apply_damage(&state, player_id, 100, survival::DamageCause::Disease)
+        .await
+        .unwrap();
+    let held: i64 = sqlx::query_scalar("SELECT count(*) FROM player_equipment")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(held, 0, "a dead character holds nothing");
 }
