@@ -5,3 +5,10 @@ server_name = "ishtaria.example.org"
 ruleset = "core-rules@1.0"
 listen = "0.0.0.0:7400"
 database_url = "postgresql:///ishtaria?host=/var/run/postgresql"
+
+# Federation (optional). Set public_url to the address other worlds use to reach this
+# server; players can then invite players of other worlds to build a portal together.
+# public_url = "https://ishtaria.example.org:7400"
+# [federation]
+# policy = "approve"            # closed | approve (operator approves each pact) | open
+# allow_private_peers = false   # true only for development networks

@@ -1,0 +1,245 @@
+{
+  "version": 1,
+  "reach_m": 4.0,
+  "cooldown_ms": 700,
+  "stamina_cost": 2,
+  "forget_hits_after_minutes": 10,
+  "resources": [
+    {
+      "id": "pine_tree",
+      "kind": "tree",
+      "tool": "axe",
+      "hits": 5,
+      "regrow_minutes": 90,
+      "models": [
+        "nature.tree_pine*",
+        "nature.pine",
+        "platformer.pine",
+        "platformer.snow-pine",
+        "nature.tree_cone*"
+      ],
+      "drops": [
+        {
+          "item": "pine_log",
+          "min": 1,
+          "max": 2
+        }
+      ],
+      "bonus": [
+        {
+          "item": "pine_nut",
+          "chance": 0.3,
+          "min": 1,
+          "max": 3
+        }
+      ],
+      "leaves": {
+        "model": "nature.stump_round",
+        "scale": 0.3
+      }
+    },
+    {
+      "id": "palm_tree",
+      "kind": "tree",
+      "tool": "axe",
+      "hits": 4,
+      "regrow_minutes": 90,
+      "models": [
+        "nature.tree_palm*"
+      ],
+      "drops": [
+        {
+          "item": "palm_log",
+          "min": 1,
+          "max": 2
+        }
+      ],
+      "bonus": [
+        {
+          "item": "coconut",
+          "chance": 0.35,
+          "min": 1,
+          "max": 2
+        }
+      ],
+      "leaves": {
+        "model": "nature.stump_round",
+        "scale": 0.3
+      }
+    },
+    {
+      "id": "oak_tree",
+      "kind": "tree",
+      "tool": "axe",
+      "hits": 6,
+      "regrow_minutes": 120,
+      "models": [
+        "nature.oak",
+        "nature.tree_oak*",
+        "nature.tree_fat*",
+        "nature.tree_blocks*",
+        "nature.tree_plateau*"
+      ],
+      "drops": [
+        {
+          "item": "oak_log",
+          "min": 1,
+          "max": 3
+        }
+      ],
+      "bonus": [
+        {
+          "item": "acorn",
+          "chance": 0.3,
+          "min": 1,
+          "max": 4
+        }
+      ],
+      "leaves": {
+        "model": "nature.stump_round",
+        "scale": 0.3
+      }
+    },
+    {
+      "id": "birch_fall_tree",
+      "kind": "tree",
+      "tool": "axe",
+      "hits": 5,
+      "regrow_minutes": 90,
+      "models": [
+        "nature.tree_*_fall"
+      ],
+      "drops": [
+        {
+          "item": "birch_log",
+          "min": 1,
+          "max": 2
+        }
+      ],
+      "bonus": [
+        {
+          "item": "pear",
+          "chance": 0.3,
+          "min": 1,
+          "max": 3
+        }
+      ],
+      "leaves": {
+        "model": "nature.stump_round",
+        "scale": 0.3
+      }
+    },
+    {
+      "id": "birch_tree",
+      "kind": "tree",
+      "tool": "axe",
+      "hits": 5,
+      "regrow_minutes": 90,
+      "models": [
+        "nature.tree_*",
+        "mini-forest.tree",
+        "survival.tree"
+      ],
+      "drops": [
+        {
+          "item": "birch_log",
+          "min": 1,
+          "max": 2
+        }
+      ],
+      "bonus": [
+        {
+          "item": "apple",
+          "chance": 0.3,
+          "min": 1,
+          "max": 3
+        }
+      ],
+      "leaves": {
+        "model": "nature.stump_round",
+        "scale": 0.3
+      }
+    },
+    {
+      "id": "large_rock",
+      "kind": "rock",
+      "tool": "pickaxe",
+      "hits": 8,
+      "regrow_minutes": 60,
+      "models": [
+        "nature.rock_large*",
+        "nature.rock_tall*",
+        "nature.stone_large*",
+        "nature.stone_tall*",
+        "mini-forest.rocks",
+        "platformer.rocks"
+      ],
+      "drops": [
+        {
+          "item": "stone",
+          "min": 3,
+          "max": 6
+        }
+      ],
+      "bonus": [
+        {
+          "item": "iron_ore",
+          "chance": 0.15,
+          "min": 1,
+          "max": 2
+        },
+        {
+          "item": "copper_ore",
+          "chance": 0.1,
+          "min": 1,
+          "max": 2
+        },
+        {
+          "item": "quartz_crystal",
+          "chance": 0.04,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "id": "small_rock",
+      "kind": "rock",
+      "tool": "pickaxe",
+      "hits": 4,
+      "regrow_minutes": 45,
+      "models": [
+        "nature.rock*",
+        "nature.stone*",
+        "survival.rock"
+      ],
+      "drops": [
+        {
+          "item": "stone",
+          "min": 1,
+          "max": 3
+        }
+      ],
+      "bonus": [
+        {
+          "item": "iron_ore",
+          "chance": 0.07,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "copper_ore",
+          "chance": 0.05,
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "quartz_crystal",
+          "chance": 0.02,
+          "min": 1,
+          "max": 1
+        }
+      ]
+    }
+  ]
+}

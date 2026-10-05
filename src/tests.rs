@@ -1,4 +1,9 @@
 use super::*;
+
+mod building;
+mod harvest;
+mod leases;
+mod pacts;
 use axum::{body::Body, http::Request};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
@@ -19,7 +24,10 @@ async fn inventory_is_granted_once_and_uuid_is_unique(pool: PgPool) {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(count, 4);
+    assert_eq!(
+        count, 8,
+        "four food stacks, the starting coins and three tools"
+    );
     sqlx::query("DELETE FROM player_inventory WHERE player_id = $1")
         .bind(player_id)
         .execute(&pool)
@@ -35,22 +43,15 @@ async fn inventory_is_granted_once_and_uuid_is_unique(pool: PgPool) {
     assert_eq!(count, 0);
     assert!(sqlx::query("INSERT INTO players (world_id, username, password_hash, uuid) VALUES ($1, 'duplicate-player', 'test-only', $2::uuid)")
         .bind(world_id).bind(uuid).execute(&pool).await.is_err());
-    sqlx::query("UPDATE players SET gold = 50 WHERE id = $1")
-        .bind(player_id)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE players SET gold = 80 WHERE id = $1")
-        .bind(player_id)
-        .execute(&pool)
-        .await
-        .unwrap();
+    set_gold(&pool, Some(player_id), 50).await;
+    set_gold(&pool, Some(player_id), 80).await;
     let lifetime: i64 = sqlx::query_scalar("SELECT lifetime_gold FROM players WHERE id = $1")
         .bind(player_id)
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(lifetime, 130);
+    // 100 starting coins, all removed above, then 50 and 30 more gained.
+    assert_eq!(lifetime, 180);
 }
 
 #[sqlx::test]
@@ -58,10 +59,10 @@ async fn inventory_is_granted_once_and_uuid_is_unique(pool: PgPool) {
 async fn new_player_gold_is_persistent_and_nonnegative(pool: PgPool) {
     let cfg = config();
     let world_id = initialize(&pool, &cfg, None).await.unwrap();
-    let (player_id, gold): (i64, i64) = sqlx::query_as(
-        "INSERT INTO players (world_id, username, password_hash) VALUES ($1, 'new-player', 'test-only') RETURNING id, gold",
+    let player_id: i64 = sqlx::query_scalar(
+        "INSERT INTO players (world_id, username, password_hash) VALUES ($1, 'new-player', 'test-only') RETURNING id",
     ).bind(world_id).fetch_one(&pool).await.unwrap();
-    assert_eq!(gold, 100);
+    assert_eq!(gold_of(&pool, player_id).await, 100);
     sqlx::query("UPDATE players SET created_at = now() - interval '12 days 6 hours' WHERE id = $1")
         .bind(player_id)
         .execute(&pool)
@@ -74,27 +75,29 @@ async fn new_player_gold_is_persistent_and_nonnegative(pool: PgPool) {
     let profile = serde_json::to_value(players::profile(&state, player_id).await.unwrap()).unwrap();
     assert_eq!(profile["life"]["age_days"], "12");
     assert!(profile["life"]["born_at"].as_str().unwrap().ends_with('Z'));
-    sqlx::query("UPDATE players SET gold = 73 WHERE id = $1")
-        .bind(player_id)
-        .execute(&pool)
-        .await
-        .unwrap();
+    set_gold(&pool, Some(player_id), 73).await;
     assert_eq!(initialize(&pool, &cfg, None).await.unwrap(), world_id);
-    let gold: i64 = sqlx::query_scalar("SELECT gold FROM players WHERE id = $1")
+    assert_eq!(gold_of(&pool, player_id).await, 73);
+    for invalid in [-1, 0] {
+        assert!(sqlx::query(
+            "UPDATE player_inventory SET quantity = $2 WHERE player_id = $1 AND item_id = 'gold'"
+        )
         .bind(player_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(gold, 73);
-    assert!(sqlx::query("UPDATE players SET gold = -1 WHERE id = $1")
-        .bind(player_id)
+        .bind(invalid)
         .execute(&pool)
         .await
         .is_err());
-    let gold: i64 = sqlx::query_scalar(
-        "INSERT INTO players (world_id, username, password_hash) VALUES ($1, 'another-player', 'test-only') RETURNING gold",
+    }
+    let another: i64 = sqlx::query_scalar(
+        "INSERT INTO players (world_id, username, password_hash) VALUES ($1, 'another-player', 'test-only') RETURNING id",
     ).bind(world_id).fetch_one(&pool).await.unwrap();
-    assert_eq!(gold, 100);
+    assert_eq!(gold_of(&pool, another).await, 100);
+    let lifetime: i64 = sqlx::query_scalar("SELECT lifetime_gold FROM players WHERE id = $1")
+        .bind(another)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(lifetime, 100, "the starting coins are counted once");
 }
 
 const SMALL_MAP: &[u8] = b"P5\n6 1\n255\n\x0a\x20\x00\x80\xfe\xff";
@@ -601,11 +604,9 @@ async fn survival_login_settles_starvation(pool: PgPool) {
     let second =
         response_json(player_request(&router, "POST", "/players/login", credentials, "").await)
             .await;
-    sqlx::query("UPDATE players SET gold = 9223372036854775807")
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE players SET gold = 10, created_at = now() - interval '1234 days', last_ate_at = now() - interval '7 days'").execute(&pool).await.unwrap();
+    set_gold(&pool, None, i64::MAX).await;
+    set_gold(&pool, None, 10).await;
+    sqlx::query("UPDATE players SET created_at = now() - interval '1234 days', last_ate_at = now() - interval '7 days'").execute(&pool).await.unwrap();
     let response = player_request(&router, "POST", "/players/login", credentials, "").await;
     assert_eq!(response.status(), StatusCode::GONE);
     assert_eq!(response.headers()["cache-control"], "no-store");
@@ -634,10 +635,11 @@ async fn survival_login_settles_starvation(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(sessions, 0);
-    let grave_gold: i64 = sqlx::query_scalar("SELECT gold FROM graves")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let grave_gold: i64 =
+        sqlx::query_scalar("SELECT quantity FROM grave_inventory WHERE item_id = 'gold'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(grave_gold, 10);
     let new_credentials = r#"{"username":"Offline-Player","password":"next-password"}"#;
     let (first, second) = tokio::join!(
@@ -833,7 +835,8 @@ async fn survival_activity_recovery_and_dehydration(pool: PgPool) {
             .fetch_one(&pool)
             .await
             .unwrap();
-    sqlx::query("UPDATE players SET water = 0, water_fraction = 0, health = 1, gold = 1000001, survival_updated_at = clock_timestamp() - interval '6 seconds' WHERE id = $1")
+    set_gold(&pool, Some(ids[1]), 1000001).await;
+    sqlx::query("UPDATE players SET water = 0, water_fraction = 0, health = 1, survival_updated_at = clock_timestamp() - interval '6 seconds' WHERE id = $1")
         .bind(ids[1]).execute(&pool).await.unwrap();
     survival::settle_world(&state).await.unwrap();
     survival::settle_world(&state).await.unwrap();
@@ -894,7 +897,7 @@ async fn survival_eating_starvation_and_graves(pool: PgPool) {
     let profile =
         response_json(player_request(&router, "GET", "/players/me", "", &token).await).await;
     assert_eq!(profile["inventory"]["capacity"], 100);
-    assert_eq!(profile["inventory"]["used"], 5);
+    assert_eq!(profile["inventory"]["used"], 8);
     assert_eq!(profile["life"]["alive"], true);
     assert_eq!(profile["inventory"]["items"][0]["quantity"], "3");
     sqlx::query("UPDATE players SET health = 80, last_ate_at = now() - interval '6 days 23 hours'")
@@ -980,7 +983,8 @@ async fn survival_eating_starvation_and_graves(pool: PgPool) {
     let profile =
         response_json(player_request(&router, "GET", "/players/me", "", &token).await).await;
     assert_eq!(profile["inventory"]["capacity"], 140);
-    sqlx::query("UPDATE players SET last_ate_at = now() - interval '7 days', created_at = now() - interval '12 days 6 hours', gold = 1000000").execute(&pool).await.unwrap();
+    set_gold(&pool, None, 1000000).await;
+    sqlx::query("UPDATE players SET last_ate_at = now() - interval '7 days', created_at = now() - interval '12 days 6 hours'").execute(&pool).await.unwrap();
     assert_eq!(
         player_request(
             &router,
@@ -1002,7 +1006,7 @@ async fn survival_eating_starvation_and_graves(pool: PgPool) {
         StatusCode::UNAUTHORIZED
     );
     let (alive, cause, balance): (bool, String, i64) =
-        sqlx::query_as("SELECT died_at IS NULL, death_cause, gold FROM players")
+        sqlx::query_as("SELECT died_at IS NULL, death_cause, (SELECT coalesce(sum(quantity), 0)::bigint FROM player_inventory WHERE player_id = players.id AND item_id = 'gold') FROM players")
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -1033,7 +1037,7 @@ async fn survival_eating_starvation_and_graves(pool: PgPool) {
         i64,
         Option<f64>,
     ) = sqlx::query_as(
-        "SELECT id, kind, player_name, player_uuid::text, gold, position_x FROM graves",
+        "SELECT id, kind, player_name, player_uuid::text, (SELECT quantity FROM grave_inventory WHERE grave_id = graves.id AND item_id = 'gold'), position_x FROM graves",
     )
     .fetch_one(&pool)
     .await
@@ -1119,7 +1123,8 @@ async fn survival_damage_and_concurrent_loot(pool: PgPool) {
         .fetch_one(&pool)
         .await
         .unwrap();
-    sqlx::query("UPDATE players SET gold = 1000001, created_at = now() - interval '5 days 12 hours', position_x = 10, position_y = 20, position_z = 30 WHERE id = $1").bind(id).execute(&pool).await.unwrap();
+    set_gold(&pool, Some(id), 1000001).await;
+    sqlx::query("UPDATE players SET created_at = now() - interval '5 days 12 hours', position_x = 10, position_y = 20, position_z = 30 WHERE id = $1").bind(id).execute(&pool).await.unwrap();
     for name in ["friend-one", "friend-two"] {
         let friend: i64 = sqlx::query_scalar("INSERT INTO players (world_id, username, password_hash, character) SELECT world_id, $2, password_hash, character FROM players WHERE id = $1 RETURNING id").bind(id).bind(name).fetch_one(&pool).await.unwrap();
         sqlx::query("INSERT INTO player_friendships (player_id, friend_id) VALUES (least($1, $2), greatest($1, $2))").bind(id).bind(friend).execute(&pool).await.unwrap();
@@ -1188,6 +1193,11 @@ async fn survival_damage_and_concurrent_loot(pool: PgPool) {
     assert_eq!(grave["kind"], "mausoleum");
     assert_eq!(grave["cause"], "falling_tree");
     assert_eq!(grave["position_x"], 10.0);
+    // 1000101 coins fill 101 slots of 10000, so the looter needs the capacity of a high level.
+    sqlx::query("UPDATE players SET level = 100 WHERE username = 'living-player'")
+        .execute(&pool)
+        .await
+        .unwrap();
     let body = r#"{"item_id":"gold","quantity":"1000001"}"#;
     let (first, second) = tokio::join!(
         player_request(&router, "POST", &path, body, &token),
@@ -1200,7 +1210,10 @@ async fn survival_damage_and_concurrent_loot(pool: PgPool) {
     let profile =
         response_json(player_request(&router, "GET", "/players/me", "", &token).await).await;
     assert_eq!(profile["stats"]["gold"], "1000101");
-    assert_eq!(profile["inventory"]["used"], 5);
+    assert_eq!(
+        profile["inventory"]["used"], 108,
+        "4 food stacks, 3 tools and 101 coin slots"
+    );
     sqlx::query("DELETE FROM player_friendships")
         .execute(&pool)
         .await
@@ -1320,11 +1333,11 @@ async fn survival_capacity_and_stacking(pool: PgPool) {
         .fetch_one(&pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO item_types (id, name, stack_limit) VALUES ('stone', 'Stone', 100)")
+    sqlx::query("INSERT INTO item_types (id, name, stack_limit) VALUES ('pebble', 'Pebble', 100)")
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO player_inventory (player_id, item_id, quantity) VALUES ($1, 'stone', 1), ($1, 'bag', 1), ($1, 'suitcase', 1)")
+    sqlx::query("INSERT INTO player_inventory (player_id, item_id, quantity) VALUES ($1, 'pebble', 1), ($1, 'bag', 1), ($1, 'suitcase', 1)")
         .bind(dead_id).execute(&pool).await.unwrap();
     sqlx::query("UPDATE players SET position_x = 0, position_y = 0, position_z = 0 WHERE id = $1")
         .bind(dead_id)
@@ -1351,7 +1364,7 @@ async fn survival_capacity_and_stacking(pool: PgPool) {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO item_types (id, name, stack_limit) SELECT 'filler-' || value, 'Filler', 1 FROM generate_series(1,95) AS value").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO item_types (id, name, stack_limit) SELECT 'filler-' || value, 'Filler', 1 FROM generate_series(1,92) AS value").execute(&pool).await.unwrap();
     sqlx::query(
         "INSERT INTO player_inventory SELECT $1, id, 1 FROM item_types WHERE id LIKE 'filler-%'",
     )
@@ -1365,7 +1378,7 @@ async fn survival_capacity_and_stacking(pool: PgPool) {
             &router,
             "POST",
             &path,
-            r#"{"item_id":"stone","quantity":"1"}"#,
+            r#"{"item_id":"pebble","quantity":"1"}"#,
             &token
         )
         .await
@@ -1415,7 +1428,7 @@ async fn survival_capacity_and_stacking(pool: PgPool) {
             &router,
             "POST",
             &path,
-            r#"{"item_id":"stone","quantity":"1"}"#,
+            r#"{"item_id":"pebble","quantity":"1"}"#,
             &token
         )
         .await
@@ -1542,10 +1555,7 @@ async fn player_api_returns_authoritative_gold(pool: PgPool) {
         .await
         .unwrap();
     assert!(hash.starts_with("$argon2id$"));
-    sqlx::query("UPDATE players SET gold = 73")
-        .execute(&pool)
-        .await
-        .unwrap();
+    set_gold(&pool, None, 73).await;
     let response = player_request(&router, "GET", "/players/me", "", token).await;
     assert_eq!(response.status(), StatusCode::OK);
     let profile: serde_json::Value =
@@ -1643,6 +1653,9 @@ fn config() -> Config {
         listen: "127.0.0.1:0".into(),
         database_url: None,
         atmosphere: None,
+        public_url: None,
+        federation: None,
+        monetization: None,
     }
 }
 
@@ -1694,7 +1707,10 @@ async fn persistence_and_conflicting_imports(pool: PgPool) {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(versions, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    assert_eq!(
+        versions,
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    );
 }
 
 #[sqlx::test]
@@ -1985,4 +2001,20 @@ async fn scheduled_shutdown_is_announced_in_world(pool: PgPool) {
         .unwrap();
     let world = response_json(request(&router, "/world").await).await;
     assert_eq!(world["messages"], serde_json::json!([]));
+}
+
+/// Sets the coin stack of one player (or of all players) in the inventory.
+async fn set_gold(pool: &PgPool, player_id: Option<i64>, amount: i64) {
+    if amount > 0 {
+        sqlx::query("INSERT INTO player_inventory (player_id, item_id, quantity) SELECT id, 'gold', $1 FROM players WHERE $2::bigint IS NULL OR id = $2 ON CONFLICT (player_id, item_id) DO UPDATE SET quantity = EXCLUDED.quantity")
+            .bind(amount).bind(player_id).execute(pool).await.unwrap();
+    } else {
+        sqlx::query("DELETE FROM player_inventory WHERE item_id = 'gold' AND ($1::bigint IS NULL OR player_id = $1)")
+            .bind(player_id).execute(pool).await.unwrap();
+    }
+}
+
+async fn gold_of(pool: &PgPool, player_id: i64) -> i64 {
+    sqlx::query_scalar("SELECT coalesce(sum(quantity), 0)::bigint FROM player_inventory WHERE player_id = $1 AND item_id = 'gold'")
+        .bind(player_id).fetch_one(pool).await.unwrap()
 }

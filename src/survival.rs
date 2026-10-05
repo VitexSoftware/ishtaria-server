@@ -177,6 +177,15 @@ struct Eat {
     item_id: String,
 }
 
+#[derive(FromRow)]
+struct Stackable {
+    quantity: i64,
+    stack_limit: i64,
+    capacity_bonus: i32,
+    multi_slot: bool,
+    slot_cost: i64,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Loot {
@@ -199,8 +208,11 @@ pub(super) async fn life(
         .bind(id).fetch_one(&mut **transaction).await?)
 }
 
-async fn slots(transaction: &mut Transaction<'_, Postgres>, id: i64) -> Result<(i64, i64), Error> {
-    Ok(sqlx::query_as("SELECT 100::bigint + 10::bigint * (level - 1) + coalesce((SELECT sum(capacity_bonus * quantity) FROM player_inventory JOIN item_types ON item_types.id = item_id WHERE player_id = players.id), 0)::bigint AS capacity, (SELECT count(*) FROM player_inventory WHERE player_id = players.id) + CASE WHEN gold > 0 THEN 1 ELSE 0 END AS used FROM players WHERE id = $1")
+pub(super) async fn slots(
+    transaction: &mut Transaction<'_, Postgres>,
+    id: i64,
+) -> Result<(i64, i64), Error> {
+    Ok(sqlx::query_as("SELECT 100::bigint + 10::bigint * (level - 1) + coalesce((SELECT sum(capacity_bonus * quantity) FROM player_inventory JOIN item_types ON item_types.id = item_id WHERE player_id = players.id), 0)::bigint AS capacity, coalesce((SELECT sum(CASE WHEN multi_slot THEN ((quantity + stack_limit - 1) / stack_limit) * slot_cost ELSE slot_cost END) FROM player_inventory JOIN item_types ON item_types.id = item_id WHERE player_id = players.id), 0)::bigint AS used FROM players WHERE id = $1")
         .bind(id).fetch_one(&mut **transaction).await?)
 }
 
@@ -209,7 +221,7 @@ pub(super) async fn inventory(
     id: i64,
 ) -> Result<Inventory, Error> {
     let (capacity, used) = slots(transaction, id).await?;
-    let items = sqlx::query_as("SELECT item_id, name, quantity::text, calories, capacity_bonus, asset FROM player_inventory JOIN item_types ON item_types.id = item_id WHERE player_id = $1 ORDER BY item_id")
+    let items = sqlx::query_as("SELECT item_id, name, quantity::text, calories, capacity_bonus, asset FROM player_inventory JOIN item_types ON item_types.id = item_id WHERE player_id = $1 AND item_id <> 'gold' ORDER BY item_id")
         .bind(id).fetch_all(&mut **transaction).await?;
     Ok(Inventory {
         capacity,
@@ -236,7 +248,7 @@ async fn die(
     id: i64,
     cause: &str,
 ) -> Result<(), Error> {
-    let grave_id: i64 = sqlx::query_scalar("INSERT INTO graves (world_id, player_id, player_uuid, player_name, cause, kind, lifetime_gold, gold, position_x, position_y, position_z, lived_days, friends_count, born_at) SELECT world_id, id, uuid, username, $2, CASE WHEN lifetime_gold > 1000000 THEN 'mausoleum' WHEN lifetime_gold >= 1000 THEN 'monument' ELSE 'headstone' END, lifetime_gold, gold, position_x, position_y, position_z, greatest(0, floor(extract(epoch FROM (now() - created_at)) / 86400))::bigint, (SELECT count(*) FROM player_friendships WHERE player_id = players.id OR friend_id = players.id), created_at FROM players WHERE id = $1 RETURNING id")
+    let grave_id: i64 = sqlx::query_scalar("INSERT INTO graves (world_id, player_id, player_uuid, player_name, cause, kind, lifetime_gold, position_x, position_y, position_z, lived_days, friends_count, born_at) SELECT world_id, id, uuid, username, $2, CASE WHEN lifetime_gold > 1000000 THEN 'mausoleum' WHEN lifetime_gold >= 1000 THEN 'monument' ELSE 'headstone' END, lifetime_gold, position_x, position_y, position_z, greatest(0, floor(extract(epoch FROM (now() - created_at)) / 86400))::bigint, (SELECT count(*) FROM player_friendships WHERE player_id = players.id OR friend_id = players.id), created_at FROM players WHERE id = $1 RETURNING id")
         .bind(id).bind(cause).fetch_one(&mut **transaction).await?;
     sqlx::query("INSERT INTO grave_inventory (grave_id, item_id, quantity) SELECT $1, item_id, quantity FROM player_inventory WHERE player_id = $2")
         .bind(grave_id).bind(id).execute(&mut **transaction).await?;
@@ -244,13 +256,11 @@ async fn die(
         .bind(id)
         .execute(&mut **transaction)
         .await?;
-    sqlx::query(
-        "UPDATE players SET died_at = now(), death_cause = $2, health = 0, gold = 0 WHERE id = $1",
-    )
-    .bind(id)
-    .bind(cause)
-    .execute(&mut **transaction)
-    .await?;
+    sqlx::query("UPDATE players SET died_at = now(), death_cause = $2, health = 0 WHERE id = $1")
+        .bind(id)
+        .bind(cause)
+        .execute(&mut **transaction)
+        .await?;
     sqlx::query("DELETE FROM player_sessions WHERE player_id = $1")
         .bind(id)
         .execute(&mut **transaction)
@@ -423,10 +433,10 @@ async fn grave(
         return Err(Error::Status(StatusCode::CONFLICT, "player is dead"));
     }
     require_reachable(&mut transaction, state.world_id, player_id, id).await?;
-    let mut grave: Grave = sqlx::query_as("SELECT id::text, player_uuid::text, player_name, kind, cause, died_at::text, gold::text, position_x, position_y, position_z FROM graves WHERE world_id = $1 AND id = $2 FOR SHARE")
+    let mut grave: Grave = sqlx::query_as("SELECT id::text, player_uuid::text, player_name, kind, cause, died_at::text, coalesce((SELECT quantity FROM grave_inventory WHERE grave_id = graves.id AND item_id = 'gold'), 0)::text AS gold, position_x, position_y, position_z FROM graves WHERE world_id = $1 AND id = $2 FOR SHARE")
         .bind(state.world_id).bind(id).fetch_optional(&mut *transaction).await?
         .ok_or(Error::Status(StatusCode::NOT_FOUND, "grave not found"))?;
-    grave.items = sqlx::query_as("SELECT item_id, name, quantity::text, calories, capacity_bonus, asset FROM grave_inventory JOIN item_types ON item_types.id = item_id WHERE grave_id = $1 ORDER BY item_id")
+    grave.items = sqlx::query_as("SELECT item_id, name, quantity::text, calories, capacity_bonus, asset FROM grave_inventory JOIN item_types ON item_types.id = item_id WHERE grave_id = $1 AND item_id <> 'gold' ORDER BY item_id")
         .bind(id).fetch_all(&mut *transaction).await?;
     grave.obituary = Some(sqlx::query_as("SELECT player_name AS name, to_char(born_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS born_at, lived_days::text, lifetime_gold::text, friends_count::text FROM graves WHERE id = $1")
         .bind(id).fetch_one(&mut *transaction).await?);
@@ -455,64 +465,57 @@ async fn loot(
     }
     require_reachable(&mut transaction, state.world_id, id, grave_id).await?;
     let (capacity, used) = slots(&mut transaction, id).await?;
-    if input.item_id == "gold" {
-        let (available, balance): (i64, i64) = sqlx::query_as("SELECT graves.gold, players.gold FROM graves JOIN players ON players.id = $2 WHERE graves.id = $1")
-            .bind(grave_id).bind(id).fetch_one(&mut *transaction).await?;
-        let balance_after = balance
-            .checked_add(amount)
-            .ok_or(Error::Status(StatusCode::CONFLICT, "gold overflow"))?;
-        if amount > available || (balance == 0 && used >= capacity) {
-            return Err(Error::Status(
-                StatusCode::CONFLICT,
-                "insufficient gold or inventory capacity",
-            ));
-        }
-        sqlx::query("UPDATE graves SET gold = gold - $2 WHERE id = $1")
+    let source: Option<Stackable> = sqlx::query_as("SELECT quantity, stack_limit, capacity_bonus, multi_slot, slot_cost::bigint AS slot_cost FROM grave_inventory JOIN item_types ON item_types.id = item_id WHERE grave_id = $1 AND item_id = $2")
+        .bind(grave_id).bind(&input.item_id).fetch_optional(&mut *transaction).await?;
+    let Stackable {
+        quantity: available,
+        stack_limit: limit,
+        capacity_bonus: bonus,
+        multi_slot,
+        slot_cost,
+    } = source.ok_or(if input.item_id == "gold" {
+        Error::Status(
+            StatusCode::CONFLICT,
+            "insufficient gold or inventory capacity",
+        )
+    } else {
+        Error::Status(StatusCode::NOT_FOUND, "item not found")
+    })?;
+    let owned: Option<i64> = sqlx::query_scalar(
+        "SELECT quantity FROM player_inventory WHERE player_id = $1 AND item_id = $2",
+    )
+    .bind(id)
+    .bind(&input.item_id)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let total = owned
+        .unwrap_or(0)
+        .checked_add(amount)
+        .ok_or(Error::Status(StatusCode::CONFLICT, "stack overflow"))?;
+    let fits = if multi_slot {
+        // Several slots of `limit` items each: only the additional slots must be free.
+        let slots_for = |count: i64| (count / limit + i64::from(count % limit != 0)) * slot_cost;
+        used + (slots_for(total) - slots_for(owned.unwrap_or(0))) <= capacity
+    } else {
+        total <= limit
+            && (owned.is_some() || used + slot_cost <= capacity + i64::from(bonus) * amount)
+    };
+    if amount > available || !fits {
+        return Err(Error::Status(
+            StatusCode::CONFLICT,
+            "insufficient items or inventory capacity",
+        ));
+    }
+    sqlx::query("INSERT INTO player_inventory (player_id, item_id, quantity) VALUES ($1, $2, $3) ON CONFLICT (player_id, item_id) DO UPDATE SET quantity = EXCLUDED.quantity")
+        .bind(id).bind(&input.item_id).bind(total).execute(&mut *transaction).await?;
+    if amount == available {
+        sqlx::query("DELETE FROM grave_inventory WHERE grave_id = $1 AND item_id = $2")
             .bind(grave_id)
-            .bind(amount)
-            .execute(&mut *transaction)
-            .await?;
-        sqlx::query("UPDATE players SET gold = $2 WHERE id = $1")
-            .bind(id)
-            .bind(balance_after)
+            .bind(&input.item_id)
             .execute(&mut *transaction)
             .await?;
     } else {
-        let source: Option<(i64, i64, i32)> = sqlx::query_as("SELECT quantity, stack_limit, capacity_bonus FROM grave_inventory JOIN item_types ON item_types.id = item_id WHERE grave_id = $1 AND item_id = $2")
-            .bind(grave_id).bind(&input.item_id).fetch_optional(&mut *transaction).await?;
-        let (available, limit, bonus) =
-            source.ok_or(Error::Status(StatusCode::NOT_FOUND, "item not found"))?;
-        let owned: Option<i64> = sqlx::query_scalar(
-            "SELECT quantity FROM player_inventory WHERE player_id = $1 AND item_id = $2",
-        )
-        .bind(id)
-        .bind(&input.item_id)
-        .fetch_optional(&mut *transaction)
-        .await?;
-        let total = owned
-            .unwrap_or(0)
-            .checked_add(amount)
-            .ok_or(Error::Status(StatusCode::CONFLICT, "stack overflow"))?;
-        if amount > available
-            || total > limit
-            || (owned.is_none() && used + 1 > capacity + i64::from(bonus) * amount)
-        {
-            return Err(Error::Status(
-                StatusCode::CONFLICT,
-                "insufficient items or inventory capacity",
-            ));
-        }
-        sqlx::query("INSERT INTO player_inventory (player_id, item_id, quantity) VALUES ($1, $2, $3) ON CONFLICT (player_id, item_id) DO UPDATE SET quantity = EXCLUDED.quantity")
-            .bind(id).bind(&input.item_id).bind(total).execute(&mut *transaction).await?;
-        if amount == available {
-            sqlx::query("DELETE FROM grave_inventory WHERE grave_id = $1 AND item_id = $2")
-                .bind(grave_id)
-                .bind(&input.item_id)
-                .execute(&mut *transaction)
-                .await?;
-        } else {
-            sqlx::query("UPDATE grave_inventory SET quantity = quantity - $3 WHERE grave_id = $1 AND item_id = $2").bind(grave_id).bind(&input.item_id).bind(amount).execute(&mut *transaction).await?;
-        }
+        sqlx::query("UPDATE grave_inventory SET quantity = quantity - $3 WHERE grave_id = $1 AND item_id = $2").bind(grave_id).bind(&input.item_id).bind(amount).execute(&mut *transaction).await?;
     }
     transaction.commit().await?;
     Ok(Json(players::profile(&state, id).await?))

@@ -1,7 +1,11 @@
 mod atmosphere;
 mod environment;
+mod federation;
+mod gathering;
+mod land;
 mod movement;
 mod players;
+mod portals;
 mod survival;
 mod terrain;
 
@@ -51,6 +55,22 @@ struct Config {
     listen: String,
     database_url: Option<String>,
     atmosphere: Option<Atmosphere>,
+    /// Public API URL other worlds use to reach this server; enables federation.
+    #[serde(default)]
+    public_url: Option<String>,
+    #[serde(default)]
+    federation: Option<FederationConfig>,
+    #[serde(default)]
+    monetization: Option<land::MonetizationConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FederationConfig {
+    /// `closed`, `approve` (default, operator approves each pact) or `open`.
+    policy: Option<String>,
+    /// Allow peers on private/loopback addresses (development networks only).
+    allow_private_peers: Option<bool>,
 }
 
 fn default_listen() -> String {
@@ -132,6 +152,15 @@ async fn initialize(pool: &PgPool, cfg: &Config, import: Option<(&[u8], u64)>) -
     if ruleset != cfg.ruleset {
         bail!("configured ruleset differs from the persisted world; use an explicit migration");
     }
+    federation::ensure_settings(
+        &mut transaction,
+        world_id,
+        cfg.public_url.as_deref(),
+        cfg.federation.as_ref().and_then(|f| f.policy.as_deref()),
+        cfg.federation.as_ref().and_then(|f| f.allow_private_peers),
+    )
+    .await?;
+    land::ensure_settings(&mut transaction, world_id, cfg.monetization.as_ref()).await?;
     if let Some((pgm, seed)) = import {
         let map = Heightmap::parse(pgm)?;
         let existing: Option<(String, String)> =
@@ -172,6 +201,10 @@ fn app(state: AppState) -> Router {
         .route("/world/memorials", get(movement::world_memorials))
         .route("/terrain/{face}/{x}/{y}", get(sample))
         .merge(players::routes())
+        .merge(federation::routes())
+        .merge(gathering::routes())
+        .merge(portals::routes())
+        .merge(land::routes())
         .with_state(state)
 }
 
@@ -384,8 +417,14 @@ async fn main() -> Result<()> {
     let shutdown_watch = shutdown_watcher(pool.clone(), world_id);
     let survival_task = tokio::spawn(async move {
         let mut timer = tokio::time::interval(Duration::from_secs(5));
+        let directory = portals::http_directory();
+        let mut ticks = 0u32;
         loop {
             timer.tick().await;
+            ticks = ticks.wrapping_add(1);
+            if ticks % 6 == 0 {
+                portals::retry_pending(&survival_state, directory.as_ref()).await;
+            }
             if survival::settle_world(&survival_state).await.is_err() {
                 eprintln!("survival update failed");
             }

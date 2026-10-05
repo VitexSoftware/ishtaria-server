@@ -29,7 +29,14 @@ use parry3d_f64::query::{Ray, RayCast};
 const RADIUS: f64 = 6_371_000.0;
 const WALK_SPEED: f64 = 4.0;
 const RUN_SPEED: f64 = 6.0;
-const OBJECT_GRID: i32 = 600_000;
+pub(super) const OBJECT_GRID: i32 = 600_000;
+/// Animals live on a coarser grid: about one cell per 170 metres.
+const FAUNA_GRID: i32 = 60_000;
+const FAUNA_PRESENCE: f64 = 0.35;
+/// Fish are only placed where the water is at least this deep.
+const MIN_WATER_DEPTH_M: f64 = 3.0;
+/// Animals are sent to clients only within this distance of the requested point.
+const FAUNA_RADIUS_M: f64 = 280.0;
 const PLAYER_RADIUS: f64 = 0.35;
 const JUMP_SPEED: f64 = 6.5;
 const RUN_JUMP_SPEED: f64 = 8.5;
@@ -259,11 +266,26 @@ pub(super) struct Reply {
     stats: players::Stats,
 }
 
-struct WalkingTerrain {
+pub(super) struct WalkingTerrain {
     size: usize,
     pixels: Vec<u8>,
     environment: environment::Environment,
     catalog: Vec<ObjectKind>,
+    removed: Removed,
+}
+
+/// Objects that players have harvested, with the unix second at which they grow back.
+/// They are absent from rendering and collision until then.
+#[derive(Default)]
+struct Removed(std::sync::RwLock<HashMap<String, Remains>>);
+
+/// When an object grows back and what, if anything, stands in its place meanwhile.
+type Remains = (i64, Option<(String, f64)>);
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs() as i64)
 }
 
 #[derive(Deserialize)]
@@ -280,6 +302,20 @@ struct ObjectKind {
     scale_m: f64,
     max_slope: f64,
     collision_radius: f64,
+    /// Animals form their own layer with its own grid and ids, so adding them
+    /// does not change where trees and rocks stand.
+    #[serde(default)]
+    fauna: bool,
+    /// Swims below the surface of oceans, lakes and rivers instead of standing on land.
+    #[serde(default)]
+    aquatic: bool,
+    /// Deepest the animal swims below the surface, in metres.
+    #[serde(default = "default_depth")]
+    depth_m: f64,
+}
+
+fn default_depth() -> f64 {
+    8.0
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -301,12 +337,22 @@ pub(super) struct RegionQuery {
     z: f64,
 }
 
+/// A world object as sent to clients, with what it can be harvested for.
+#[derive(Serialize)]
+struct ObjectDescriptor {
+    #[serde(flatten)]
+    object: WorldObject,
+    /// `tree` or `rock` when the object can be harvested, with the tool it needs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    harvest: Option<super::gathering::HarvestInfo>,
+}
+
 #[derive(Serialize)]
 pub(super) struct ObjectRegion {
     version: u32,
     heightmap_sha256: String,
     seed: String,
-    objects: Vec<WorldObject>,
+    objects: Vec<ObjectDescriptor>,
     memorials: Vec<super::survival::Memorial>,
 }
 
@@ -314,6 +360,21 @@ fn object_catalog() -> Option<Vec<ObjectKind>> {
     let catalog: ObjectCatalog =
         serde_json::from_str(include_str!("../etc/world_objects.json")).ok()?;
     (catalog.version == 1).then_some(catalog.objects)
+}
+
+fn fauna_catalog() -> Option<Vec<ObjectKind>> {
+    let catalog: ObjectCatalog =
+        serde_json::from_str(include_str!("../etc/world_fauna.json")).ok()?;
+    (catalog.version == 1).then(|| {
+        catalog
+            .objects
+            .into_iter()
+            .map(|kind| ObjectKind {
+                fauna: true,
+                ..kind
+            })
+            .collect()
+    })
 }
 
 fn unit(point: [f64; 3]) -> [f64; 3] {
@@ -394,6 +455,16 @@ fn length(point: [f64; 3]) -> f64 {
     point.iter().map(|value| value * value).sum::<f64>().sqrt()
 }
 
+/// The map tile (face, column, row) of the object grid that contains a position.
+pub(super) fn tile_of(point: [f64; 3]) -> (i32, i32, i32) {
+    let (face, horizontal, vertical) = coordinates(unit(point));
+    (
+        face as i32,
+        ((horizontal * f64::from(OBJECT_GRID)) as i32).clamp(0, OBJECT_GRID - 1),
+        ((vertical * f64::from(OBJECT_GRID)) as i32).clamp(0, OBJECT_GRID - 1),
+    )
+}
+
 fn coordinates(point: [f64; 3]) -> (usize, f64, f64) {
     let [horizontal, vertical, depth] = point;
     let magnitude = point.map(f64::abs);
@@ -434,6 +505,61 @@ fn coordinates(point: [f64; 3]) -> (usize, f64, f64) {
 }
 
 impl WalkingTerrain {
+    /// Finds a generated object by its id (`seed:face:column:row`) unless it is currently harvested.
+    pub(super) fn object_by_id(&self, id: &str) -> Option<WorldObject> {
+        if self.is_removed(id) {
+            return None;
+        }
+        self.object_cell_by_id(id)
+    }
+
+    /// The generated object with this id, ignoring harvesting.
+    pub(super) fn object_cell_by_id(&self, id: &str) -> Option<WorldObject> {
+        let mut parts = id.rsplitn(4, ':');
+        let row: i32 = parts.next()?.parse().ok()?;
+        let column: i32 = parts.next()?.parse().ok()?;
+        let face: usize = parts.next()?.parse().ok()?;
+        let seed = parts.next()?;
+        if seed != self.environment.seed
+            || face > 5
+            || !(0..OBJECT_GRID).contains(&column)
+            || !(0..OBJECT_GRID).contains(&row)
+        {
+            return None;
+        }
+        self.object_cell(face, column, row)
+            .filter(|object| object.id == id)
+    }
+
+    /// Hides an object until `until_unix`; a `leaves` model (and its size relative to the
+    /// original) is shown in its place, for example a stump where a tree stood.
+    /// Where a portal may be built: dry land. Returns the map position (face, column, row).
+    pub(super) fn build_site(&self, point: [f64; 3]) -> Option<(i32, i32, i32)> {
+        let direction = unit(point);
+        self.surface(direction)?;
+        let (face, horizontal, vertical) = coordinates(direction);
+        let size = self.environment.face_size;
+        let column = ((horizontal * size as f64) as usize).min(size - 1);
+        let row = ((vertical * size as f64) as usize).min(size - 1);
+        Some((face as i32, column as i32, row as i32))
+    }
+
+    pub(super) fn mark_removed(&self, id: &str, until_unix: i64, leaves: Option<(String, f64)>) {
+        if let Ok(mut removed) = self.removed.0.write() {
+            let now = unix_now();
+            removed.retain(|_, (until, _)| *until > now);
+            removed.insert(id.to_owned(), (until_unix, leaves));
+        }
+    }
+
+    fn is_removed(&self, id: &str) -> bool {
+        self.removed.0.read().is_ok_and(|removed| {
+            removed
+                .get(id)
+                .is_some_and(|(until, _)| *until > unix_now())
+        })
+    }
+
     fn advance(
         &self,
         mut point: [f64; 3],
@@ -595,6 +721,66 @@ impl WalkingTerrain {
 
     fn object_cell(&self, face: usize, column: i32, row: i32) -> Option<WorldObject> {
         let id = format!("{}:{face}:{column}:{row}", self.environment.seed);
+        self.place(id, face, column, row, OBJECT_GRID, false)
+    }
+
+    fn fauna_cell(&self, face: usize, column: i32, row: i32) -> Option<WorldObject> {
+        let id = format!("{}:fauna:{face}:{column}:{row}", self.environment.seed);
+        self.place(id, face, column, row, FAUNA_GRID, true)
+    }
+
+    /// Water animals: placed below the water surface where the water is deep enough.
+    fn place_aquatic(
+        &self,
+        id: String,
+        point: [f64; 3],
+        index: usize,
+        biome: u8,
+        sample: &dyn Fn(usize) -> f64,
+    ) -> Option<WorldObject> {
+        if sample(2) > FAUNA_PRESENCE {
+            return None;
+        }
+        let level = f64::from(self.environment.water_m[index]);
+        let depth = level - self.height(point);
+        if depth < MIN_WATER_DEPTH_M {
+            return None;
+        }
+        let candidates: Vec<_> = self
+            .catalog
+            .iter()
+            .filter(|kind| kind.fauna && kind.aquatic && kind.biomes.contains(&biome))
+            .collect();
+        let total: f64 = candidates.iter().map(|kind| kind.weight).sum();
+        let mut choice = sample(3) * total;
+        let kind = candidates.into_iter().find(|kind| {
+            choice -= kind.weight;
+            choice <= 0.0
+        })?;
+        let deepest = kind.depth_m.min(depth - 1.5).max(1.0);
+        let below = 0.8 + sample(6) * (deepest - 0.8).max(0.0);
+        let scale_m = kind.scale_m * (0.8 + sample(5) * 0.4);
+        Some(WorldObject {
+            id,
+            model: kind.id.clone(),
+            position: point.map(|value| value * (RADIUS + level - below)),
+            scale_m,
+            yaw: sample(4) * std::f64::consts::TAU,
+            collision_radius_m: 0.0,
+            biome,
+        })
+    }
+
+    /// Chooses the object of one grid cell from the hash of its identifier.
+    fn place(
+        &self,
+        id: String,
+        face: usize,
+        column: i32,
+        row: i32,
+        grid: i32,
+        fauna: bool,
+    ) -> Option<WorldObject> {
         let hash = Sha256::digest(id.as_bytes());
         let sample = |index: usize| {
             f64::from(u32::from_le_bytes(
@@ -603,17 +789,28 @@ impl WalkingTerrain {
         };
         let point = cube_point(
             face,
-            (f64::from(column) + 0.15 + sample(0) * 0.7) * 2.0 / f64::from(OBJECT_GRID) - 1.0,
-            1.0 - (f64::from(row) + 0.15 + sample(1) * 0.7) * 2.0 / f64::from(OBJECT_GRID),
+            (f64::from(column) + 0.15 + sample(0) * 0.7) * 2.0 / f64::from(grid) - 1.0,
+            1.0 - (f64::from(row) + 0.15 + sample(1) * 0.7) * 2.0 / f64::from(grid),
         );
-        let height = self.surface(point)?;
         let (face, horizontal, vertical) = coordinates(point);
         let size = self.environment.face_size;
         let index = face * size * size
             + ((vertical * size as f64) as usize).min(size - 1) * size
             + ((horizontal * size as f64) as usize).min(size - 1);
         let biome = self.environment.biomes[index];
-        if sample(2) > if biome == 5 { 0.7 } else { 0.18 } {
+        if fauna && biome < 3 {
+            return self.place_aquatic(id, point, index, biome, &sample);
+        }
+        let height = self.surface(point)?;
+        if sample(2)
+            > if fauna {
+                FAUNA_PRESENCE
+            } else if biome == 5 {
+                0.7
+            } else {
+                0.18
+            }
+        {
             return None;
         }
         let reference = if point[1].abs() < 0.9 {
@@ -636,7 +833,12 @@ impl WalkingTerrain {
         let candidates: Vec<_> = self
             .catalog
             .iter()
-            .filter(|kind| kind.biomes.contains(&biome) && slope <= kind.max_slope)
+            .filter(|kind| {
+                kind.fauna == fauna
+                    && !kind.aquatic
+                    && kind.biomes.contains(&biome)
+                    && slope <= kind.max_slope
+            })
             .collect();
         let total: f64 = candidates.iter().map(|kind| kind.weight).sum();
         let mut choice = sample(3) * total;
@@ -656,27 +858,74 @@ impl WalkingTerrain {
         })
     }
 
-    fn objects(&self, point: [f64; 3], span: i32) -> Vec<WorldObject> {
+    /// Objects of the cells around a point; `cell` picks the object of one cell.
+    fn collect(
+        &self,
+        point: [f64; 3],
+        span: i32,
+        grid: i32,
+        cell: impl Fn(usize, i32, i32) -> Option<WorldObject>,
+    ) -> Vec<WorldObject> {
         let (face, horizontal, vertical) = coordinates(unit(point));
-        let center_column = (horizontal * f64::from(OBJECT_GRID)) as i32;
-        let center_row = (vertical * f64::from(OBJECT_GRID)) as i32;
+        let center_column = (horizontal * f64::from(grid)) as i32;
+        let center_row = (vertical * f64::from(grid)) as i32;
         let mut seen = HashSet::new();
         let mut objects = Vec::new();
         for row in center_row - span..=center_row + span {
             for column in center_column - span..=center_column + span {
                 let (target, horizontal, vertical) = coordinates(cube_point(
                     face,
-                    (f64::from(column) + 0.5) * 2.0 / f64::from(OBJECT_GRID) - 1.0,
-                    1.0 - (f64::from(row) + 0.5) * 2.0 / f64::from(OBJECT_GRID),
+                    (f64::from(column) + 0.5) * 2.0 / f64::from(grid) - 1.0,
+                    1.0 - (f64::from(row) + 0.5) * 2.0 / f64::from(grid),
                 ));
-                let column = ((horizontal * f64::from(OBJECT_GRID)) as i32).min(OBJECT_GRID - 1);
-                let row = ((vertical * f64::from(OBJECT_GRID)) as i32).min(OBJECT_GRID - 1);
+                let column = ((horizontal * f64::from(grid)) as i32).min(grid - 1);
+                let row = ((vertical * f64::from(grid)) as i32).min(grid - 1);
                 if seen.insert((target, column, row)) {
-                    if let Some(object) = self.object_cell(target, column, row) {
+                    if let Some(object) = cell(target, column, row) {
                         objects.push(object);
                     }
                 }
             }
+        }
+        objects
+    }
+
+    /// Animals near a point. They are passable scenery for now: they stand where the
+    /// seed puts them and do not move or collide.
+    pub(super) fn fauna(&self, point: [f64; 3]) -> Vec<WorldObject> {
+        let mut animals = self.collect(point, 2, FAUNA_GRID, |face, column, row| {
+            self.fauna_cell(face, column, row)
+        });
+        animals.retain(|animal| {
+            length(std::array::from_fn(|axis| {
+                animal.position[axis] - point[axis]
+            })) <= FAUNA_RADIUS_M
+        });
+        animals.sort_by(|first, second| first.id.cmp(&second.id));
+        animals
+    }
+
+    pub(super) fn objects(&self, point: [f64; 3], span: i32) -> Vec<WorldObject> {
+        let mut objects = self.collect(point, span, OBJECT_GRID, |face, column, row| {
+            self.object_cell(face, column, row)
+        });
+        if let Ok(removed) = self.removed.0.read() {
+            let now = unix_now();
+            objects = objects
+                .into_iter()
+                .filter_map(|mut object| match removed.get(&object.id) {
+                    Some((until, leaves)) if *until > now => {
+                        leaves.as_ref().map(|(model, scale)| {
+                            // The remains are small and can be walked over.
+                            object.model.clone_from(model);
+                            object.scale_m *= scale;
+                            object.collision_radius_m = 0.0;
+                            object
+                        })
+                    }
+                    _ => Some(object),
+                })
+                .collect();
         }
         objects.sort_by(|first, second| {
             let squared = |object: &WorldObject| {
@@ -735,7 +984,7 @@ impl WalkingTerrain {
     }
 }
 
-async fn terrain(state: &AppState) -> Result<Arc<WalkingTerrain>, players::Error> {
+pub(super) async fn terrain(state: &AppState) -> Result<Arc<WalkingTerrain>, players::Error> {
     let unavailable = || {
         players::Error::Status(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -748,7 +997,7 @@ async fn terrain(state: &AppState) -> Result<Arc<WalkingTerrain>, players::Error
             .fetch_optional(&state.pool)
             .await?
             .ok_or_else(unavailable)?;
-    let key = format!("{sha256}:{seed}:{size}");
+    let key = format!("{}:{sha256}:{seed}:{size}", state.world_id);
     let mut cache = TERRAIN.lock().await;
     if let Some((stored, terrain)) = cache.as_ref() {
         if stored == &key {
@@ -762,19 +1011,31 @@ async fn terrain(state: &AppState) -> Result<Arc<WalkingTerrain>, players::Error
             .fetch_one(&state.pool)
             .await?;
     let terrain = tokio::task::spawn_blocking(move || {
-        let catalog = object_catalog()?;
+        let mut catalog = object_catalog()?;
+        catalog.extend(fauna_catalog()?);
         environment::generate(size as usize, &pixels, &seed, &sha256).map(|environment| {
             Arc::new(WalkingTerrain {
                 size: size as usize,
                 pixels,
                 environment,
                 catalog,
+                removed: Removed::default(),
             })
         })
     })
     .await
     .map_err(|_| unavailable())?
     .ok_or_else(unavailable)?;
+    let depleted: Vec<(String, i64)> = sqlx::query_as("SELECT object_id, extract(epoch FROM depleted_until)::bigint FROM world_object_state WHERE world_id = $1 AND depleted_until > now()")
+        .bind(state.world_id)
+        .fetch_all(&state.pool)
+        .await?;
+    for (id, until) in depleted {
+        let leaves = terrain
+            .object_cell_by_id(&id)
+            .and_then(|object| super::gathering::leaves_for(&object.model));
+        terrain.mark_removed(&id, until, leaves);
+    }
     *cache = Some((key, terrain.clone()));
     Ok(terrain)
 }
@@ -796,7 +1057,10 @@ pub(super) async fn world_objects(
     let worker = terrain.clone();
     let objects = tokio::task::spawn_blocking(move || {
         let mut objects = worker.objects(point, 16);
-        objects.truncate(512);
+        objects.truncate(512 - 64);
+        let mut animals = worker.fauna(point);
+        animals.truncate(64);
+        objects.extend(animals);
         objects
     })
     .await
@@ -808,7 +1072,13 @@ pub(super) async fn world_objects(
         version: 1,
         heightmap_sha256: terrain.environment.heightmap_sha256.clone(),
         seed: terrain.environment.seed.clone(),
-        objects,
+        objects: objects
+            .into_iter()
+            .map(|object| ObjectDescriptor {
+                harvest: super::gathering::harvest_info(&object.model),
+                object,
+            })
+            .collect(),
     }))
 }
 
@@ -956,6 +1226,7 @@ mod tests {
             environment: environment::generate(16, &pixels, "42", "test").unwrap(),
             pixels,
             catalog: Vec::new(),
+            removed: Default::default(),
         };
         terrain.environment.water_m.fill(environment::DRY);
         terrain.environment.biomes.fill(4);
@@ -1001,6 +1272,7 @@ mod tests {
             environment: environment::generate(16, &pixels, "42", "test").unwrap(),
             pixels,
             catalog: Vec::new(),
+            removed: Default::default(),
         };
         terrain.environment.water_m.fill(environment::DRY);
         terrain.environment.biomes.fill(4);
@@ -1046,6 +1318,7 @@ mod tests {
             environment: environment::generate(16, &pixels, "42", "test").unwrap(),
             pixels,
             catalog: Vec::new(),
+            removed: Default::default(),
         };
         terrain.environment.water_m.fill(environment::DRY);
         terrain.environment.biomes.fill(4);
@@ -1111,6 +1384,7 @@ mod tests {
             environment: environment::generate(16, &pixels, "42", "test").unwrap(),
             pixels,
             catalog: Vec::new(),
+            removed: Default::default(),
         };
         terrain.environment.water_m.fill(environment::DRY);
         terrain.environment.biomes.fill(4);
@@ -1209,6 +1483,7 @@ mod tests {
             environment: environment::generate(16, &pixels, "42", "test").unwrap(),
             pixels,
             catalog: Vec::new(),
+            removed: Default::default(),
         };
         terrain.environment.water_m.fill(environment::DRY);
         terrain.environment.biomes.fill(4);
@@ -1298,6 +1573,7 @@ mod tests {
             pixels,
             environment,
             catalog: Vec::new(),
+            removed: Default::default(),
         };
         terrain.environment.water_m.fill(environment::DRY);
         terrain.environment.biomes.fill(4);
@@ -1345,6 +1621,7 @@ mod tests {
             pixels,
             environment,
             catalog: object_catalog().unwrap(),
+            removed: Default::default(),
         };
         let height = terrain.height([1.0, 0.0, 0.0]);
         let point = [RADIUS + height, 0.0, 0.0];
@@ -1393,6 +1670,7 @@ mod tests {
             environment: environment::generate(16, &pixels, "42", "test").unwrap(),
             pixels,
             catalog: object_catalog().unwrap(),
+            removed: Default::default(),
         };
         terrain.environment.water_m.fill(environment::DRY);
         let mut selected = HashSet::new();
@@ -1425,5 +1703,134 @@ mod tests {
                 kind.id
             );
         }
+    }
+
+    fn terrain_with(pixel: u8, biome: u8, catalog: Vec<ObjectKind>) -> WalkingTerrain {
+        let pixels = vec![pixel; 16 * 16 * 6];
+        let mut environment = environment::generate(16, &pixels, "42", "test").unwrap();
+        environment.biomes.fill(biome);
+        if biome < 3 {
+            environment.water_m.fill(0);
+        } else {
+            environment.water_m.fill(environment::DRY);
+        }
+        WalkingTerrain {
+            size: 16,
+            pixels,
+            environment,
+            catalog,
+            removed: Default::default(),
+        }
+    }
+
+    fn catalog_with_fauna() -> Vec<ObjectKind> {
+        let mut catalog = object_catalog().unwrap();
+        catalog.extend(fauna_catalog().unwrap());
+        catalog
+    }
+
+    #[test]
+    fn animals_do_not_change_where_trees_and_rocks_stand() {
+        let flora = terrain_with(144, 5, object_catalog().unwrap());
+        let both = terrain_with(144, 5, catalog_with_fauna());
+        let point = [RADIUS + flora.height([1.0, 0.0, 0.0]), 0.0, 0.0];
+        assert!(!flora.objects(point, 16).is_empty());
+        assert_eq!(flora.objects(point, 16), both.objects(point, 16));
+    }
+
+    #[test]
+    fn land_animals_are_deterministic_passable_and_fit_their_biome() {
+        let terrain = terrain_with(144, 4, catalog_with_fauna());
+        let point = [RADIUS + terrain.height([1.0, 0.0, 0.0]), 0.0, 0.0];
+        let mut found = Vec::new();
+        // Animals are sparse: look around a few places on the map.
+        for step in 0..40 {
+            let angle = f64::from(step) * 0.0003;
+            let place = unit([angle.cos(), angle.sin(), 0.0]);
+            let origin = place.map(|value| value * (RADIUS + terrain.height(place)));
+            found.extend(terrain.fauna(origin));
+            assert_eq!(terrain.fauna(origin), terrain.fauna(origin));
+        }
+        assert!(!found.is_empty(), "grassland has animals near {point:?}");
+        for animal in &found {
+            assert!(animal.id.contains(":fauna:"), "{}", animal.id);
+            assert!(animal.model.starts_with("animal."), "{}", animal.model);
+            assert_eq!(animal.collision_radius_m, 0.0, "animals are passable");
+            assert!(
+                terrain.object_by_id(&animal.id).is_none(),
+                "animals are not harvestable"
+            );
+        }
+        let kinds: std::collections::HashSet<_> =
+            found.iter().map(|animal| &animal.model).collect();
+        assert!(
+            kinds.iter().all(|model| [
+                "animal.cow",
+                "animal.bull",
+                "animal.horse",
+                "animal.white_horse",
+                "animal.donkey",
+                "animal.deer",
+                "animal.fox",
+                "animal.shiba_inu",
+                "animal.alpaca"
+            ]
+            .contains(&model.as_str())),
+            "{kinds:?}"
+        );
+    }
+
+    #[test]
+    fn fish_swim_below_the_surface_of_deep_water_only() {
+        let sea = terrain_with(80, 0, catalog_with_fauna());
+        let mut fish = Vec::new();
+        for step in 0..40 {
+            let angle = f64::from(step) * 0.0003;
+            let place = unit([angle.cos(), angle.sin(), 0.0]);
+            fish.extend(sea.fauna(place.map(|value| value * RADIUS)));
+        }
+        assert!(!fish.is_empty(), "the sea has fish");
+        for animal in &fish {
+            assert!(animal.model.starts_with("fish."), "{}", animal.model);
+            let below = RADIUS - length(animal.position);
+            assert!(
+                (0.7..=60.5).contains(&below),
+                "{} swims {below} m below the surface",
+                animal.id
+            );
+            assert_eq!(animal.collision_radius_m, 0.0);
+        }
+        // Water above the seabed by less than three metres gets no fish; land gets no fish.
+        let shallow = terrain_with(128, 0, catalog_with_fauna());
+        let start = [RADIUS, 0.0, 0.0];
+        assert!(shallow.fauna(start).is_empty());
+        let land = terrain_with(144, 4, catalog_with_fauna());
+        assert!(land
+            .fauna([RADIUS + 1000.0, 0.0, 0.0])
+            .iter()
+            .all(|animal| animal.model.starts_with("animal.")));
+        // Fresh water only holds freshwater fish.
+        let lake = terrain_with(80, 1, catalog_with_fauna());
+        let mut lake_fish = Vec::new();
+        for step in 0..60 {
+            let angle = f64::from(step) * 0.0003;
+            let place = unit([angle.cos(), angle.sin(), 0.0]);
+            lake_fish.extend(lake.fauna(place.map(|value| value * RADIUS)));
+        }
+        assert!(
+            lake_fish.iter().all(|animal| [
+                "fish.armored_catfish",
+                "fish.betta",
+                "fish.blue_goldfish",
+                "fish.flower_horn",
+                "fish.goldfish",
+                "fish.koi",
+                "fish.piranha",
+                "fish.tetra"
+            ]
+            .contains(&animal.model.as_str())),
+            "{:?}",
+            lake_fish.iter().map(|a| &a.model).collect::<Vec<_>>()
+        );
     }
 }

@@ -41,7 +41,7 @@ pub(super) async fn stats(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     id: i64,
 ) -> Result<Stats, Error> {
-    Ok(sqlx::query_as("SELECT gold::text AS gold, health, stamina, greatest(0, least(100, ceil(100 * (1 - extract(epoch FROM (now() - last_ate_at)) / 604800))))::integer AS food, water, level, experience FROM players WHERE id = $1")
+    Ok(sqlx::query_as("SELECT coalesce((SELECT quantity FROM player_inventory WHERE player_id = players.id AND item_id = 'gold'), 0)::text AS gold, health, stamina, greatest(0, least(100, ceil(100 * (1 - extract(epoch FROM (now() - last_ate_at)) / 604800))))::integer AS food, water, level, experience FROM players WHERE id = $1")
         .bind(id).fetch_one(&mut **transaction).await?)
 }
 
@@ -190,7 +190,7 @@ pub(super) async fn profile(state: &AppState, player_id: i64) -> Result<Player, 
         transaction.commit().await?;
         return Err(Error::Obituary(notice));
     }
-    let mut player: Player = sqlx::query_as("SELECT username, character, gold::text AS gold, health, stamina, greatest(0, least(100, ceil(100 * (1 - extract(epoch FROM (now() - last_ate_at)) / 604800))))::integer AS food, water, level, experience FROM players WHERE id = $1 AND world_id = $2 FOR SHARE")
+    let mut player: Player = sqlx::query_as("SELECT username, character, coalesce((SELECT quantity FROM player_inventory WHERE player_id = players.id AND item_id = 'gold'), 0)::text AS gold, health, stamina, greatest(0, least(100, ceil(100 * (1 - extract(epoch FROM (now() - last_ate_at)) / 604800))))::integer AS food, water, level, experience FROM players WHERE id = $1 AND world_id = $2 FOR SHARE")
         .bind(player_id).bind(state.world_id).fetch_one(&mut *transaction).await?;
     player.life = Some(super::survival::life(&mut transaction, player_id).await?);
     player.inventory = Some(super::survival::inventory(&mut transaction, player_id).await?);

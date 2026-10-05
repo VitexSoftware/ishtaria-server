@@ -1,0 +1,57 @@
+-- Whole animals can be carried. An animal fills as many inventory slots as its size
+-- suggests: a fox four, a wolf eight, a horse twenty, a bull twenty-five. Fish fill
+-- one to eight. They have no other function yet (no hunting or fishing exists).
+
+ALTER TABLE item_types DROP CONSTRAINT item_types_category_check;
+ALTER TABLE item_types ADD CONSTRAINT item_types_category_check
+    CHECK (category IN ('food', 'raw_material', 'tool', 'weapon', 'armor', 'shield', 'consumable',
+                        'container', 'valuable', 'key', 'document', 'remains', 'currency', 'animal', 'misc'));
+
+INSERT INTO item_types (id, name, calories, capacity_bonus, stack_limit, multi_slot, slot_cost, category) VALUES
+    ('animal_fox', 'Fox', 0, 0, 1, true, 4, 'animal'),
+    ('animal_shiba_inu', 'Shiba Inu', 0, 0, 1, true, 5, 'animal'),
+    ('animal_husky', 'Husky', 0, 0, 1, true, 6, 'animal'),
+    ('animal_wolf', 'Wolf', 0, 0, 1, true, 8, 'animal'),
+    ('animal_alpaca', 'Alpaca', 0, 0, 1, true, 10, 'animal'),
+    ('animal_deer', 'Deer', 0, 0, 1, true, 10, 'animal'),
+    ('animal_stag', 'Stag', 0, 0, 1, true, 14, 'animal'),
+    ('animal_donkey', 'Donkey', 0, 0, 1, true, 14, 'animal'),
+    ('animal_horse', 'Horse', 0, 0, 1, true, 20, 'animal'),
+    ('animal_white_horse', 'White Horse', 0, 0, 1, true, 20, 'animal'),
+    ('animal_cow', 'Cow', 0, 0, 1, true, 22, 'animal'),
+    ('animal_bull', 'Bull', 0, 0, 1, true, 25, 'animal'),
+    ('fish_anglerfish', 'Anglerfish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_armored_catfish', 'Armored Catfish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_betta', 'Betta', 0, 0, 1, true, 1, 'animal'),
+    ('fish_black_lion_fish', 'Black Lion Fish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_blobfish', 'Blobfish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_blue_goldfish', 'Blue Goldfish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_blue_tang', 'Blue Tang', 0, 0, 1, true, 1, 'animal'),
+    ('fish_butterfly_fish', 'Butterfly Fish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_cardinal_fish', 'Cardinal Fish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_clownfish', 'Clownfish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_coral_grouper', 'Coral Grouper', 0, 0, 1, true, 2, 'animal'),
+    ('fish_cowfish', 'Cowfish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_flatfish', 'Flatfish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_flower_horn', 'Flower Horn', 0, 0, 1, true, 1, 'animal'),
+    ('fish_goblin_shark', 'Goblin Shark', 0, 0, 1, true, 8, 'animal'),
+    ('fish_goldfish', 'Goldfish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_humphead', 'Humphead', 0, 0, 1, true, 4, 'animal'),
+    ('fish_koi', 'Koi', 0, 0, 1, true, 2, 'animal'),
+    ('fish_lionfish', 'Lionfish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_mandarin_fish', 'Mandarin Fish', 0, 0, 1, true, 1, 'animal'),
+    ('fish_moorish_idol', 'Moorish Idol', 0, 0, 1, true, 1, 'animal'),
+    ('fish_parrot_fish', 'Parrot Fish', 0, 0, 1, true, 2, 'animal'),
+    ('fish_piranha', 'Piranha', 0, 0, 1, true, 1, 'animal'),
+    ('fish_puffer', 'Puffer', 0, 0, 1, true, 1, 'animal'),
+    ('fish_red_snapper', 'Red Snapper', 0, 0, 1, true, 2, 'animal'),
+    ('fish_royal_gramma', 'Royal Gramma', 0, 0, 1, true, 1, 'animal'),
+    ('fish_shark', 'Shark', 0, 0, 1, true, 8, 'animal'),
+    ('fish_sunfish', 'Sunfish', 0, 0, 1, true, 4, 'animal'),
+    ('fish_swordfish', 'Swordfish', 0, 0, 1, true, 8, 'animal'),
+    ('fish_tang', 'Tang', 0, 0, 1, true, 1, 'animal'),
+    ('fish_tetra', 'Tetra', 0, 0, 1, true, 1, 'animal'),
+    ('fish_tuna', 'Tuna', 0, 0, 1, true, 4, 'animal'),
+    ('fish_turbot', 'Turbot', 0, 0, 1, true, 2, 'animal'),
+    ('fish_yellow_tang', 'Yellow Tang', 0, 0, 1, true, 1, 'animal'),
+    ('fish_zebra_clown_fish', 'Zebra Clown Fish', 0, 0, 1, true, 1, 'animal');

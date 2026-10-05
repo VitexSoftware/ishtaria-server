@@ -2,7 +2,7 @@
 
 Authoritative world server of Ishtaria: one planet, its simulation, persistence and the federation endpoint that links worlds through portals.
 
-**Status:** PostgreSQL-backed world identity, heightmaps, characters, inventory, eating, permanent death, memorial APIs and server-authoritative walking and jumping onto scenery. General rigid-body physics, combat and federation transport are not implemented yet.
+**Status:** PostgreSQL-backed world identity, heightmaps, characters, inventory, eating, permanent death, memorial APIs and server-authoritative walking and jumping onto scenery. General rigid-body physics, combat, joint portal building, travel tickets and cross-world play are not implemented yet; player-initiated portal invitations and pacts between worlds exist.
 
 ## Running Locally
 
@@ -233,9 +233,11 @@ these endpoints publicly; CORS or the two-job hashing limit are not rate limitin
 
 ## Survival And Permanent Memorials
 
+Migration `0015_gold_in_inventory.sql` moves gold from a balance column into the `gold` inventory item (exact balances preserved, verified inside the migration).
+
 Migrations 0005-0008 add a permanent character UUID, inventories, starvation,
 graves and immutable obituary statistics. Each new character receives four
-food stacks and 100 inventory slots; gold occupies one stack. Capacity grows
+food stacks and 100 inventory slots; gold coins are an inventory item (`gold`, 10,000 per slot, several slots allowed) and 100 coins are granted with the other starter items. Capacity grows
 by 10 per level after level one, plus 20 per bag and 50 per suitcase.
 Apple, bread, cheese and carrot provide 95, 265, 113 and 25 kcal respectively.
 `POST /players/me/eat` accepts only an owned `item_id`, consumes one item and
@@ -355,3 +357,52 @@ License: AGPL-3.0-only – anyone may run a world; modified servers offered over
 
 Ishtaria is an open-source, persistent, federated virtual planet of Earth size.
 Documentation: https://vitexsoftware.github.io/ishtaria-docs/ · All repositories: https://github.com/VitexSoftware?q=ishtaria
+
+## Federation: portal invitations and pacts
+
+Set `public_url` (and optionally `[federation] policy = "closed" | "approve" | "open"`, default
+`approve`) in `server.toml` to let players invite players of other worlds to build a portal together.
+Migration `0014_federation.sql` stores the world's Ed25519 signing key, pinned peer keys, invitations
+and pacts; the key lives in the database, so protect and back it up like the rest of the world.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /.well-known/ishtaria/server.json` | Published identity: world name, API URL, public key, policy |
+| `POST /portals/invitations`, `DELETE /portals/invitations/{id}` | Create (7 days, single use, 3 open per player) or revoke an invitation; authenticated |
+| `POST /portals/pacts`, `GET /portals/pacts` | Accept an invitation code for the player's own end / list own pacts; authenticated |
+| `POST /federation/pacts` | Server-to-server signed acceptance (4 KiB limit) |
+
+Outbound requests to peers use public addresses only, no redirects, small bodies and a five-second
+timeout. Set `allow_private_peers = true` only on development networks. With policy `approve`, pacts
+stay `proposed` until an operator sets `portal_pacts.state` to `accepted` (SQL for now; no admin menu yet).
+Building: `POST /portals/pacts/{id}/site`, `POST /portals/pacts/{id}/contribute`, `GET /portals/pacts/{id}`, `DELETE /portals/pacts/{id}` (close, leaves ruins), `POST /federation/pacts/status` (signed status between worlds) and `GET /world/portals`; requirements in `etc/portal.json`, migration `0019_portal_building.sql`.
+Message formats are in `ishtaria-protocol`; see the documentation page *Portal invitations and pacts*.
+
+## Land leases (real money)
+
+Off by default; enable it in `server.toml`:
+
+```toml
+[monetization]
+enabled = true
+currency = "CZK"
+tile_price_minor = 1000     # per tile and month, in minor units (10.00)
+grace_days = 7              # unpaid rent keeps its exclusive right this long
+max_tiles = 400
+```
+
+`GET /land/prices`, `GET/POST /land/leases` (a rectangle of map tiles near the player, at most 40 tiles a
+side), `POST /land/leases/{id}/renew`, `GET /land/leased?x&y&z`. An order is confirmed by the payment
+provider's signed callback `POST /payments/webhook` (`X-Ishtaria-Signature`: hex HMAC-SHA256 of the body
+with the secret in the environment variable `ISHTARIA_PAYMENT_SECRET`, at least 16 characters). The only
+provider so far is `manual`: the operator, or a script, posts the signed callback. The server handles no
+card data and applies a payment idempotently in one transaction. Only the tenant can place construction
+sites on leased land. Migration `0020_land_leases.sql`.
+
+## Gathering and crafting
+
+`POST /players/me/harvest` (`{"object_id": …}`) fells trees and mines rocks of the generated world;
+`POST /players/me/craft` (`{"recipe": …, "count": "1"}`) and `GET /recipes` craft items. Resources are defined in
+`etc/resources.json`, recipes in `etc/recipes.json`, items by migration `0016_gathering.sql`. Axe, pickaxe and
+sword are inventory items every new character starts with. A log fills ten slots and is chopped into wood;
+harvested objects are stored as changes (`world_object_state`) and grow back; a felled tree leaves a stump.

@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "recipes": [
+    {
+      "id": "chop_pine_log",
+      "tool": "axe",
+      "inputs": [
+        {
+          "item": "pine_log",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "pine_wood",
+          "quantity": 20
+        }
+      ]
+    },
+    {
+      "id": "chop_oak_log",
+      "tool": "axe",
+      "inputs": [
+        {
+          "item": "oak_log",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "oak_wood",
+          "quantity": 20
+        }
+      ]
+    },
+    {
+      "id": "chop_palm_log",
+      "tool": "axe",
+      "inputs": [
+        {
+          "item": "palm_log",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "palm_wood",
+          "quantity": 20
+        }
+      ]
+    },
+    {
+      "id": "chop_birch_log",
+      "tool": "axe",
+      "inputs": [
+        {
+          "item": "birch_log",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "birch_wood",
+          "quantity": 20
+        }
+      ]
+    },
+    {
+      "id": "pine_plank",
+      "inputs": [
+        {
+          "item": "pine_wood",
+          "quantity": 5
+        }
+      ],
+      "outputs": [
+        {
+          "item": "pine_plank",
+          "quantity": 2
+        }
+      ]
+    },
+    {
+      "id": "oak_plank",
+      "inputs": [
+        {
+          "item": "oak_wood",
+          "quantity": 5
+        }
+      ],
+      "outputs": [
+        {
+          "item": "oak_plank",
+          "quantity": 2
+        }
+      ]
+    },
+    {
+      "id": "palm_plank",
+      "inputs": [
+        {
+          "item": "palm_wood",
+          "quantity": 5
+        }
+      ],
+      "outputs": [
+        {
+          "item": "palm_plank",
+          "quantity": 2
+        }
+      ]
+    },
+    {
+      "id": "birch_plank",
+      "inputs": [
+        {
+          "item": "birch_wood",
+          "quantity": 5
+        }
+      ],
+      "outputs": [
+        {
+          "item": "birch_plank",
+          "quantity": 2
+        }
+      ]
+    },
+    {
+      "id": "stone_block",
+      "inputs": [
+        {
+          "item": "stone",
+          "quantity": 4
+        }
+      ],
+      "outputs": [
+        {
+          "item": "stone_block",
+          "quantity": 1
+        }
+      ]
+    }
+  ]
+}

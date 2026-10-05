@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "reach_m": 6.0,
+  "min_distance_m": 20.0,
+  "requirements": [
+    { "id": "stone_block", "items": ["stone_block"], "quantity": 10 },
+    { "id": "plank", "items": ["pine_plank", "oak_plank", "palm_plank", "birch_plank"], "quantity": 20 },
+    { "id": "quartz_crystal", "items": ["quartz_crystal"], "quantity": 2 }
+  ]
+}
