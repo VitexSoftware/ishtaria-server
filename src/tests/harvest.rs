@@ -1,6 +1,6 @@
 use super::*;
 
-async fn position_of(pool: &PgPool, player_id: i64) -> [f64; 3] {
+pub(super) async fn position_of(pool: &PgPool, player_id: i64) -> [f64; 3] {
     let (x, y, z): (f64, f64, f64) =
         sqlx::query_as("SELECT position_x, position_y, position_z FROM players WHERE id = $1")
             .bind(player_id)
@@ -10,13 +10,13 @@ async fn position_of(pool: &PgPool, player_id: i64) -> [f64; 3] {
     [x, y, z]
 }
 
-async fn teleport(pool: &PgPool, player_id: i64, point: [f64; 3]) {
+pub(super) async fn teleport(pool: &PgPool, player_id: i64, point: [f64; 3]) {
     sqlx::query("UPDATE players SET position_x = $2, position_y = $3, position_z = $4, last_gathered_at = NULL, stamina = 100 WHERE id = $1")
         .bind(player_id).bind(point[0]).bind(point[1]).bind(point[2])
         .execute(pool).await.unwrap();
 }
 
-async fn harvest_request(router: &Router, token: &str, object_id: &str) -> Response {
+pub(super) async fn harvest_request(router: &Router, token: &str, object_id: &str) -> Response {
     player_request(
         router,
         "POST",
@@ -27,14 +27,14 @@ async fn harvest_request(router: &Router, token: &str, object_id: &str) -> Respo
     .await
 }
 
-async fn cooldown_reset(pool: &PgPool) {
+pub(super) async fn cooldown_reset(pool: &PgPool) {
     sqlx::query("UPDATE players SET last_gathered_at = NULL")
         .execute(pool)
         .await
         .unwrap();
 }
 
-fn find_object(
+pub(super) fn find_object(
     terrain: &movement::WalkingTerrain,
     around: [f64; 3],
     kind: &str,

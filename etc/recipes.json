@@ -15,7 +15,8 @@
           "item": "pine_wood",
           "quantity": 20
         }
-      ]
+      ],
+      "xp": 3
     },
     {
       "id": "chop_oak_log",
@@ -31,7 +32,8 @@
           "item": "oak_wood",
           "quantity": 20
         }
-      ]
+      ],
+      "xp": 3
     },
     {
       "id": "chop_palm_log",
@@ -47,7 +49,8 @@
           "item": "palm_wood",
           "quantity": 20
         }
-      ]
+      ],
+      "xp": 3
     },
     {
       "id": "chop_birch_log",
@@ -63,7 +66,8 @@
           "item": "birch_wood",
           "quantity": 20
         }
-      ]
+      ],
+      "xp": 3
     },
     {
       "id": "pine_plank",
@@ -78,7 +82,8 @@
           "item": "pine_plank",
           "quantity": 2
         }
-      ]
+      ],
+      "xp": 4
     },
     {
       "id": "oak_plank",
@@ -93,7 +98,8 @@
           "item": "oak_plank",
           "quantity": 2
         }
-      ]
+      ],
+      "xp": 4
     },
     {
       "id": "palm_plank",
@@ -108,7 +114,8 @@
           "item": "palm_plank",
           "quantity": 2
         }
-      ]
+      ],
+      "xp": 4
     },
     {
       "id": "birch_plank",
@@ -123,7 +130,8 @@
           "item": "birch_plank",
           "quantity": 2
         }
-      ]
+      ],
+      "xp": 4
     },
     {
       "id": "stone_block",
@@ -138,7 +146,8 @@
           "item": "stone_block",
           "quantity": 1
         }
-      ]
+      ],
+      "xp": 5
     }
   ]
 }

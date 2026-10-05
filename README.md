@@ -2,7 +2,7 @@
 
 Authoritative world server of Ishtaria: one planet, its simulation, persistence and the federation endpoint that links worlds through portals.
 
-**Status:** PostgreSQL-backed world identity, heightmaps, characters, inventory, eating, permanent death, memorial APIs and server-authoritative walking and jumping onto scenery. General rigid-body physics, combat, joint portal building, travel tickets and cross-world play are not implemented yet; player-initiated portal invitations and pacts between worlds exist.
+**Status:** PostgreSQL-backed world identity, heightmaps, characters, inventory, eating, permanent death, memorial APIs and server-authoritative walking and jumping onto scenery. General rigid-body physics, combat, travel tickets and cross-world play are not implemented yet; portals are built alone and linked with portals of other worlds by share links.
 
 ## Running Locally
 
@@ -358,25 +358,29 @@ License: AGPL-3.0-only – anyone may run a world; modified servers offered over
 Ishtaria is an open-source, persistent, federated virtual planet of Earth size.
 Documentation: https://vitexsoftware.github.io/ishtaria-docs/ · All repositories: https://github.com/VitexSoftware?q=ishtaria
 
-## Federation: portal invitations and pacts
+## Federation: portals and share links
 
-Set `public_url` (and optionally `[federation] policy = "closed" | "approve" | "open"`, default
-`approve`) in `server.toml` to let players invite players of other worlds to build a portal together.
-Migration `0014_federation.sql` stores the world's Ed25519 signing key, pinned peer keys, invitations
-and pacts; the key lives in the database, so protect and back it up like the rest of the world.
+A player builds a portal alone; a finished portal can be linked with a finished portal of another world
+by pasting its **share link**. Set `public_url` (and optionally `[federation] policy = "closed" | "approve" |
+"open"`, default `approve`) in `server.toml` to let the world link portals. Migration `0014_federation.sql`
+stores the world's Ed25519 signing key and pinned peer keys, `0030_portal_links.sql` the standalone portals
+and broken links; the key lives in the database, so protect and back it up like the rest of the world.
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /.well-known/ishtaria/server.json` | Published identity: world name, API URL, public key, policy |
-| `POST /portals/invitations`, `DELETE /portals/invitations/{id}` | Create (7 days, single use, 3 open per player) or revoke an invitation; authenticated |
-| `POST /portals/pacts`, `GET /portals/pacts` | Accept an invitation code for the player's own end / list own pacts; authenticated |
-| `POST /federation/pacts` | Server-to-server signed acceptance (4 KiB limit) |
+| `POST /portals/build`, `GET /portals/mine`, `GET /portals/mine/{id}` | Start a portal where the player stands / list / progress; authenticated |
+| `POST /portals/mine/{id}/contribute` | Deliver materials (`etc/portal.json`); the last delivery finishes the portal |
+| `GET /portals/mine/{id}/link` | The share link of a finished, unlinked portal |
+| `POST /portals/mine/{id}/connect` | Paste another world's link: the server verifies the peer (reachable, signed, the portal stands there and is finished), then links both ends |
+| `DELETE /portals/mine/{id}/link`, `DELETE /portals/mine/{id}` | Break the link (the portal is finished again) / close the portal (ruin, link broken) |
+| `GET /federation/portals/{id}` | Public: does this portal stand here, and is it finished |
+| `POST /federation/portals/link`, `POST /federation/portals/unlink` | Server-to-server signed messages (4 KiB limit) |
+| `GET /world/portals` | Portals near a point, for rendering |
 
-Outbound requests to peers use public addresses only, no redirects, small bodies and a five-second
-timeout. Set `allow_private_peers = true` only on development networks. With policy `approve`, pacts
-stay `proposed` until an operator sets `portal_pacts.state` to `accepted` (SQL for now; no admin menu yet).
-Building: `POST /portals/pacts/{id}/site`, `POST /portals/pacts/{id}/contribute`, `GET /portals/pacts/{id}`, `DELETE /portals/pacts/{id}` (close, leaves ruins), `POST /federation/pacts/status` (signed status between worlds) and `GET /world/portals`; requirements in `etc/portal.json`, migration `0019_portal_building.sql`.
-Message formats are in `ishtaria-protocol`; see the documentation page *Portal invitations and pacts*.
+A portal has exactly one counterpart. Outbound requests to peers use public addresses only, no redirects, small
+bodies and a five-second timeout; set `allow_private_peers = true` only on development networks. With policy
+`approve` a link stays `pending` until the operator approves it in `ishtaria-admin` (F4, *Open*). Message formats are in `ishtaria-protocol`; see the documentation page *Portals and share links*.
 
 ## Land leases (real money)
 
@@ -399,6 +403,17 @@ provider so far is `manual`: the operator, or a script, posts the signed callbac
 card data and applies a payment idempotently in one transaction. Only the tenant can place construction
 sites on leased land. Migration `0020_land_leases.sql`.
 
+## Experience, levels and the hall of fame
+
+Every swing at a tree or a rock gives 1 experience point, crafting gives more (`xp` per recipe in
+`etc/recipes.json`: 3 for chopping a log, 4 for planks, 5 for a stone block) and building a portal still
+more (5 per delivered unit and 500 for a finished end). A character is at level `n` from
+`25 * n * (n - 1)` points (50, 150, 300, 500 … 2250 for level 10, 9500 for level 20); the profile's `stats`
+carry `level_experience` and `next_level_experience`. Each level above the first gives 10 inventory slots,
+up to level 30. `GET /hall-of-fame` lists the ten best characters, living or dead, by
+`score = 100 * level + 10 * days lived` with their wealth; a dead character's wealth shows as zero once
+anyone has taken something from the grave (`looted`).
+
 ## Gathering and crafting
 
 `POST /players/me/harvest` (`{"object_id": …}`) fells trees and mines rocks of the generated world;
@@ -406,3 +421,18 @@ sites on leased land. Migration `0020_land_leases.sql`.
 `etc/resources.json`, recipes in `etc/recipes.json`, items by migration `0016_gathering.sql`. Axe, pickaxe and
 sword are inventory items every new character starts with; `POST /players/me/equip` (`{"item_id": …}`) puts a tool or weapon in hand and `DELETE /players/me/equip` takes it out (`equipment.hand` in the profile, migration `0021_equipment.sql`). Only the tool in hand works: the axe fells trees, the pickaxe mines stone and also fells trees, but needs twice as many swings. A log fills ten slots and is chopped into wood;
 harvested objects are stored as changes (`world_object_state`) and grow back; a felled tree leaves a stump.
+
+## Story datadisks
+
+A datadisk (directory under `/usr/share/ishtaria/datadisks/<id>/`, override with `ISHTARIA_DATADISK_DIR`) adds
+places, characters, dialogue trees and quests to a world; several disks can be combined. Format and API:
+[docs](https://vitexsoftware.github.io/ishtaria-docs/architecture/story.html) and
+`ishtaria-protocol/schemas/datadisk.schema.json`. Disks are chosen when the world is generated: the
+`ishtaria-admin` map dialog shows a checkbox per installed disk, or run
+`ishtaria-server-init <seed> <size> <disk-id> ...`. `ishtaria-server --list-datadisks` lists installed disks and
+`--check-datadisks a,b` checks that they can be combined. Migration `0026_story.sql` stores the selected disks
+(`world_datadisks`, content hash pinned on first load), the placed sites (`story_anchors`), quest stages, flags and
+once-only rewards. Endpoints: `POST /story/dialogue/start|choose`, `DELETE /story/dialogue`, `GET /story/quests`,
+`GET /story/strings` (every language; the server never learns the client's language) and
+`GET /story/media/<disk>/<path>` (portraits and music a loaded disk names); `GET /world/objects` carries `npcs`.
+Choices are applied by the server in one transaction (gold, items, flags, stages); a stale sequence number is refused.

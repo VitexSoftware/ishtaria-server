@@ -26,7 +26,7 @@ use tokio::sync::Mutex;
 #[cfg(test)]
 use parry3d_f64::query::{Ray, RayCast};
 
-const RADIUS: f64 = 6_371_000.0;
+pub(super) const RADIUS: f64 = 6_371_000.0;
 const WALK_SPEED: f64 = 4.0;
 const RUN_SPEED: f64 = 6.0;
 pub(super) const OBJECT_GRID: i32 = 600_000;
@@ -51,6 +51,16 @@ fn flight_step(height: f64, velocity: f64, seconds: f64) -> (f64, f64) {
     )
 }
 static TERRAIN: Mutex<Option<(String, Arc<WalkingTerrain>)>> = Mutex::const_new(None);
+/// Obstacles that places add to the world (walls, fences, gravestones), for the terrain with
+/// the given key `<seed>:<heightmap hash>`.
+static STATICS: std::sync::RwLock<(String, Vec<WorldObject>)> =
+    std::sync::RwLock::new((String::new(), Vec::new()));
+
+pub(super) fn set_statics(key: String, obstacles: Vec<WorldObject>) {
+    if let Ok(mut statics) = STATICS.write() {
+        *statics = (key, obstacles);
+    }
+}
 static COLLIDERS: OnceLock<HashMap<String, TriMesh>> = OnceLock::new();
 
 #[derive(Deserialize)]
@@ -353,6 +363,10 @@ pub(super) struct ObjectRegion {
     heightmap_sha256: String,
     seed: String,
     objects: Vec<ObjectDescriptor>,
+    /// Characters of the story datadisks standing nearby (passable for now).
+    npcs: Vec<super::story::world::NpcDescriptor>,
+    /// Buildings and props of towns, graveyards and harbours nearby.
+    props: Vec<super::story::settlements::WorldProp>,
     memorials: Vec<super::survival::Memorial>,
 }
 
@@ -377,12 +391,12 @@ fn fauna_catalog() -> Option<Vec<ObjectKind>> {
     })
 }
 
-fn unit(point: [f64; 3]) -> [f64; 3] {
+pub(super) fn unit(point: [f64; 3]) -> [f64; 3] {
     let radius = length(point);
     point.map(|value| value / radius)
 }
 
-fn cross(first: [f64; 3], second: [f64; 3]) -> [f64; 3] {
+pub(super) fn cross(first: [f64; 3], second: [f64; 3]) -> [f64; 3] {
     [
         first[1] * second[2] - first[2] * second[1],
         first[2] * second[0] - first[0] * second[2],
@@ -390,7 +404,7 @@ fn cross(first: [f64; 3], second: [f64; 3]) -> [f64; 3] {
     ]
 }
 
-fn dot(first: [f64; 3], second: [f64; 3]) -> f64 {
+pub(super) fn dot(first: [f64; 3], second: [f64; 3]) -> f64 {
     first
         .into_iter()
         .zip(second)
@@ -451,7 +465,7 @@ fn clear_path(point: [f64; 3], destination: [f64; 3], objects: &[WorldObject]) -
         })
 }
 
-fn length(point: [f64; 3]) -> f64 {
+pub(super) fn length(point: [f64; 3]) -> f64 {
     point.iter().map(|value| value * value).sum::<f64>().sqrt()
 }
 
@@ -504,7 +518,47 @@ fn coordinates(point: [f64; 3]) -> (usize, f64, f64) {
     )
 }
 
+/// The unit direction of a point on a cube face; both fractions run from 0 to 1.
+pub(super) fn direction_at(face: usize, horizontal: f64, vertical: f64) -> [f64; 3] {
+    cube_point(face, horizontal * 2.0 - 1.0, 1.0 - vertical * 2.0)
+}
+
 impl WalkingTerrain {
+    /// For story placement: the biome and height of dry land in this direction, or
+    /// nothing over water.
+    pub(super) fn land_site(&self, direction: [f64; 3]) -> Option<(u8, f64)> {
+        let height = self.surface(direction)?;
+        let (face, horizontal, vertical) = coordinates(direction);
+        let size = self.environment.face_size;
+        let index = face * size * size
+            + ((vertical * size as f64) as usize).min(size - 1) * size
+            + ((horizontal * size as f64) as usize).min(size - 1);
+        Some((self.environment.biomes[index], height))
+    }
+
+    /// True where the coarse environment map says open sea.
+    pub(super) fn is_sea(&self, direction: [f64; 3]) -> bool {
+        let (face, horizontal, vertical) = coordinates(direction);
+        let size = self.environment.face_size;
+        let index = face * size * size
+            + ((vertical * size as f64) as usize).min(size - 1) * size
+            + ((horizontal * size as f64) as usize).min(size - 1);
+        self.environment.biomes[index] == 0
+    }
+
+    pub(super) fn heightmap_sha256(&self) -> &str {
+        &self.environment.heightmap_sha256
+    }
+
+    pub(super) fn seed(&self) -> &str {
+        &self.environment.seed
+    }
+
+    /// Height of the ground (or sea level surface) in this direction, including local relief.
+    pub(super) fn ground_height(&self, direction: [f64; 3]) -> f64 {
+        self.height(direction)
+    }
+
     /// Finds a generated object by its id (`seed:face:column:row`) unless it is currently harvested.
     pub(super) fn object_by_id(&self, id: &str) -> Option<WorldObject> {
         if self.is_removed(id) {
@@ -594,7 +648,7 @@ impl WalkingTerrain {
         } else if !flight.airborne {
             flight.horizontal = tangent;
         }
-        let objects = self.objects(point, 2);
+        let objects = self.walking_objects(point, 2);
         point = self.advance_over_objects(point, seconds, flight, &objects);
         (
             point,
@@ -905,6 +959,30 @@ impl WalkingTerrain {
         animals
     }
 
+    /// What blocks a step: harvestable scenery plus the walls and fences of places.
+    pub(super) fn walking_objects(&self, point: [f64; 3], span: i32) -> Vec<WorldObject> {
+        let mut objects = self.objects(point, span);
+        let key = format!(
+            "{}:{}",
+            self.environment.seed, self.environment.heightmap_sha256
+        );
+        if let Ok(statics) = STATICS.read() {
+            if statics.0 == key {
+                // Only what is near the walker matters; steps are a few metres long.
+                objects.extend(
+                    statics
+                        .1
+                        .iter()
+                        .filter(|obstacle| {
+                            (0..3).all(|axis| (obstacle.position[axis] - point[axis]).abs() < 60.0)
+                        })
+                        .cloned(),
+                );
+            }
+        }
+        objects
+    }
+
     pub(super) fn objects(&self, point: [f64; 3], span: i32) -> Vec<WorldObject> {
         let mut objects = self.collect(point, span, OBJECT_GRID, |face, column, row| {
             self.object_cell(face, column, row)
@@ -980,7 +1058,7 @@ impl WalkingTerrain {
             return None;
         }
         let destination = unit.map(|value| value * (RADIUS + height));
-        clear_path(point, destination, &self.objects(point, 2)).then_some(destination)
+        clear_path(point, destination, &self.walking_objects(point, 2)).then_some(destination)
     }
 }
 
@@ -1069,6 +1147,8 @@ pub(super) async fn world_objects(
     })?;
     Ok(Json(ObjectRegion {
         memorials: super::survival::memorials(&state, unit(point)).await?,
+        npcs: super::story::world::npcs_near(&state, point).await,
+        props: super::story::world::props_near(&state, point).await,
         version: 1,
         heightmap_sha256: terrain.environment.heightmap_sha256.clone(),
         seed: terrain.environment.seed.clone(),
@@ -1120,6 +1200,7 @@ pub(super) async fn walk(
     }
     let sequence = sequence.unwrap();
     let terrain = terrain(&state).await?;
+    let _ = super::story::world::world(&state).await; // loads the walls and fences that block steps
     let mut transaction = state.pool.begin().await?;
     if !super::survival::lock_alive(&mut transaction, state.world_id, player_id).await? {
         let notice = super::survival::obituary(&mut transaction, player_id).await?;
@@ -1608,6 +1689,54 @@ mod tests {
         assert!(!clear_path(point, [RADIUS, 0.0, 1.0], &[object.clone()]));
         object.collision_radius_m = 0.0;
         assert!(clear_path(point, [RADIUS, 0.0, 1.0], &[object]));
+    }
+
+    #[test]
+    fn walls_of_places_block_steps_for_the_terrain_they_belong_to() {
+        let pixels = vec![144; 16 * 16 * 6];
+        let mut environment = environment::generate(16, &pixels, "42", "walls").unwrap();
+        environment.water_m.fill(environment::DRY);
+        environment.biomes.fill(4);
+        let terrain = WalkingTerrain {
+            size: 16,
+            pixels,
+            environment,
+            catalog: Vec::new(),
+            removed: Default::default(),
+        };
+        let height = terrain.height([1.0, 0.0, 0.0]);
+        let origin = [RADIUS + height, 0.0, 0.0];
+        let direction = unit(cross(unit(origin), [0.0, 1.0, 0.0]));
+        let wall_at = |meters: f64| -> [f64; 3] {
+            unit(std::array::from_fn(|axis| {
+                origin[axis] + direction[axis] * meters
+            }))
+            .map(|value| value * (RADIUS + height))
+        };
+        let wall = WorldObject {
+            id: "world:town_00#1.0".into(),
+            model: String::new(),
+            position: wall_at(1.0),
+            scale_m: 1.0,
+            yaw: 0.0,
+            collision_radius_m: 1.25,
+            biome: 4,
+        };
+        // Without the obstacle (or for another terrain) the step is free.
+        set_statics("other:key".into(), vec![wall.clone()]);
+        assert!(terrain.step(origin, direction, 0.25).is_some());
+        set_statics("42:walls".into(), vec![wall]);
+        assert!(
+            terrain.step(origin, direction, 0.25).is_none(),
+            "the wall blocks the step"
+        );
+        assert!(
+            terrain
+                .step(origin, direction.map(|value| -value), 0.25)
+                .is_some(),
+            "walking away is allowed"
+        );
+        set_statics(String::new(), Vec::new());
     }
 
     #[test]

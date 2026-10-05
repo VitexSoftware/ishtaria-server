@@ -1,4 +1,4 @@
-use super::building::{pact_between_worlds, site};
+use super::building::{build_portal, two_worlds};
 use super::*;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -407,7 +407,7 @@ async fn leases_are_ordered_paid_renewed_and_lapse(pool: PgPool) {
 #[ignore = "requires DATABASE_URL pointing to PostgreSQL with CREATEDB permission"]
 async fn building_a_portal_on_rented_land_needs_the_lease(pool: PgPool) {
     let _auth_test = AUTH_TESTS.acquire().await.unwrap();
-    let p = pact_between_worlds(&pool, "brana-sever", "brana-jih").await;
+    let p = two_worlds(&pool, "approve", "approve").await;
     let landlord = create_session(&p.a.router, "landlord").await;
     let _ = landlord;
     let (face, column, row) = tile_of_player(&pool, "vitex").await;
@@ -420,23 +420,22 @@ async fn building_a_portal_on_rented_land_needs_the_lease(pool: PgPool) {
         .bind(p.a.id).bind(face as i32).bind(column as i32 - 2).bind(row as i32 - 2).bind(column as i32 + 2).bind(row as i32 + 2)
         .execute(&pool).await.unwrap();
     assert_eq!(
-        site(&p.a, &p.vitex, &p.pact_a).await.status(),
+        build_portal(&p.a, &p.vitex, "brana-sever").await.status(),
         StatusCode::FORBIDDEN,
         "someone else's land"
     );
-    let state: String = sqlx::query_scalar("SELECT state FROM portal_pacts WHERE id = $1::uuid")
-        .bind(&p.pact_a)
+    let started: i64 = sqlx::query_scalar("SELECT count(*) FROM portal_pacts")
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(state, "accepted", "nothing was built");
+    assert_eq!(started, 0, "nothing was built");
     sqlx::query("UPDATE land_leases SET paid_until = now() - interval '9 days'")
         .execute(&pool)
         .await
         .unwrap();
     assert_eq!(
-        site(&p.a, &p.vitex, &p.pact_a).await.status(),
-        StatusCode::OK,
+        build_portal(&p.a, &p.vitex, "brana-sever").await.status(),
+        StatusCode::CREATED,
         "the lease has lapsed"
     );
 }

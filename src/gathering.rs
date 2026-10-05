@@ -13,7 +13,7 @@
 use super::players::{self, Error};
 use super::AppState;
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
@@ -85,6 +85,9 @@ struct Recipe {
     /// Basic tool the character needs (for example the axe to chop logs).
     #[serde(default)]
     tool: Option<String>,
+    /// Experience for each item crafted.
+    #[serde(default)]
+    xp: i64,
     inputs: Vec<Stack>,
     outputs: Vec<Stack>,
 }
@@ -213,6 +216,7 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/players/me/harvest", post(harvest))
         .route("/players/me/craft", post(craft))
         .route("/players/me/equip", post(equip).delete(unequip))
+        .route("/players/me/block", post(block))
         .route("/recipes", get(list_recipes))
 }
 
@@ -223,7 +227,7 @@ struct Harvest {
 }
 
 #[derive(Serialize)]
-struct Gained {
+pub(super) struct Gained {
     item_id: String,
     name: String,
     quantity: String,
@@ -240,6 +244,10 @@ struct HarvestReply {
     state: &'static str,
     hits: i32,
     hits_required: i32,
+    /// Experience gained by this swing.
+    xp: i64,
+    /// Wear of the tool after this swing; `broken` when it was destroyed.
+    wear: Option<super::durability::Wear>,
     items: Vec<Gained>,
     player: players::Player,
 }
@@ -249,7 +257,7 @@ fn status(code: StatusCode, message: &'static str) -> Error {
 }
 
 /// Adds items to the inventory, honouring stack limits and free slots.
-async fn add_items(
+pub(super) async fn add_items(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     player_id: i64,
     items: &[(String, i64)],
@@ -380,6 +388,10 @@ async fn harvest(
     let needed = resource.hits * config.best_swing_points;
     sqlx::query("UPDATE players SET stamina = stamina - $2, last_gathered_at = clock_timestamp() WHERE id = $1")
         .bind(player_id).bind(config.stamina_cost).execute(&mut *transaction).await?;
+    // The tool wears out with every swing.
+    let wear = super::durability::wear(&mut transaction, player_id, &tool, 1).await?;
+    // Every swing is worth one point of experience.
+    super::experience::grant(&mut transaction, player_id, 1).await?;
     let mut items = Vec::new();
     let mut regrow_at = None;
     if progress >= needed {
@@ -414,6 +426,8 @@ async fn harvest(
             (progress + points - 1) / points
         },
         hits_required: (needed + points - 1) / points,
+        xp: 1,
+        wear,
         items,
         player: players::profile(&state, player_id).await?,
     }))
@@ -442,26 +456,101 @@ async fn equip(
         .bind(player_id).bind(&input.item_id).fetch_optional(&mut *transaction).await?;
     match category.as_deref() {
         None => return Err(status(StatusCode::CONFLICT, "item not found")),
-        Some("tool" | "weapon") => {}
+        Some("tool" | "weapon") => {
+            sqlx::query("INSERT INTO player_equipment (player_id, hand) VALUES ($1, $2) ON CONFLICT (player_id) DO UPDATE SET hand = EXCLUDED.hand")
+                .bind(player_id).bind(&input.item_id).execute(&mut *transaction).await?;
+        }
+        // A shield goes in the other hand.
+        Some("shield") => {
+            sqlx::query("INSERT INTO player_equipment (player_id, offhand) VALUES ($1, $2) ON CONFLICT (player_id) DO UPDATE SET offhand = EXCLUDED.offhand")
+                .bind(player_id).bind(&input.item_id).execute(&mut *transaction).await?;
+        }
         Some(_) => return Err(status(StatusCode::CONFLICT, "this item cannot be equipped")),
     }
-    sqlx::query("INSERT INTO player_equipment (player_id, hand) VALUES ($1, $2) ON CONFLICT (player_id) DO UPDATE SET hand = EXCLUDED.hand")
-        .bind(player_id).bind(&input.item_id).execute(&mut *transaction).await?;
     transaction.commit().await?;
     Ok(Json(players::profile(&state, player_id).await?))
 }
 
-/// Takes the item out of hand.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Slot {
+    /// `hand` (default) or `offhand`.
+    slot: Option<String>,
+}
+
+/// Takes the item out of the hand, or the shield out of the other hand with `?slot=offhand`.
 async fn unequip(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(input): Query<Slot>,
 ) -> Result<Json<players::Player>, Error> {
     let player_id = players::player_id(&state, &players::token_hash(&headers)?).await?;
-    sqlx::query("DELETE FROM player_equipment WHERE player_id = $1")
+    let sql = match input.slot.as_deref() {
+        None | Some("hand") => "UPDATE player_equipment SET hand = NULL WHERE player_id = $1",
+        Some("offhand") => "UPDATE player_equipment SET offhand = NULL WHERE player_id = $1",
+        Some(_) => return Err(status(StatusCode::BAD_REQUEST, "invalid slot")),
+    };
+    sqlx::query(sql)
         .bind(player_id)
         .execute(&state.pool)
         .await?;
+    sqlx::query(
+        "DELETE FROM player_equipment WHERE player_id = $1 AND hand IS NULL AND offhand IS NULL",
+    )
+    .bind(player_id)
+    .execute(&state.pool)
+    .await?;
     Ok(Json(players::profile(&state, player_id).await?))
+}
+
+/// How long one block lasts; the client renews it while the button is held.
+const BLOCK_SECONDS: i32 = 2;
+
+#[derive(Serialize)]
+struct BlockReply {
+    blocking_seconds: i32,
+    wear: Option<super::durability::Wear>,
+    player: players::Player,
+}
+
+/// Raises the shield in the other hand. A block lasts a couple of seconds and wears the
+/// shield once each time it is (re)started.
+async fn block(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<BlockReply>, Error> {
+    let player_id = players::player_id(&state, &players::token_hash(&headers)?).await?;
+    let mut transaction = state.pool.begin().await?;
+    if !super::survival::lock_alive(&mut transaction, state.world_id, player_id).await? {
+        let notice = super::survival::obituary(&mut transaction, player_id).await?;
+        transaction.commit().await?;
+        return Err(Error::Obituary(notice));
+    }
+    let shield: Option<String> = sqlx::query_scalar("SELECT offhand FROM player_equipment WHERE player_id = $1 AND EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = offhand)")
+        .bind(player_id).fetch_optional(&mut *transaction).await?.flatten();
+    let shield = shield.ok_or_else(|| status(StatusCode::CONFLICT, "no shield in hand"))?;
+    // Renewing a block that is still running is free; only a fresh block wears the shield.
+    let fresh: Option<i64> = sqlx::query_scalar("UPDATE players SET blocked_until = clock_timestamp() + make_interval(secs => $2) WHERE id = $1 AND (blocked_until IS NULL OR blocked_until < clock_timestamp()) RETURNING id")
+        .bind(player_id).bind(BLOCK_SECONDS).fetch_optional(&mut *transaction).await?;
+    let wear = if fresh.is_some() {
+        super::durability::wear(&mut transaction, player_id, &shield, 1).await?
+    } else {
+        sqlx::query("UPDATE players SET blocked_until = clock_timestamp() + make_interval(secs => $2) WHERE id = $1")
+            .bind(player_id).bind(BLOCK_SECONDS).execute(&mut *transaction).await?;
+        None
+    };
+    if wear.is_some_and(|wear| wear.broken) {
+        sqlx::query("UPDATE players SET blocked_until = NULL WHERE id = $1")
+            .bind(player_id)
+            .execute(&mut *transaction)
+            .await?;
+    }
+    transaction.commit().await?;
+    Ok(Json(BlockReply {
+        blocking_seconds: BLOCK_SECONDS,
+        wear,
+        player: players::profile(&state, player_id).await?,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -536,6 +625,7 @@ async fn craft(
         .map(|output| (output.item.clone(), output.quantity * count))
         .collect();
     add_items(&mut transaction, player_id, &outputs).await?;
+    super::experience::grant(&mut transaction, player_id, recipe.xp * count).await?;
     transaction.commit().await?;
     Ok(Json(players::profile(&state, player_id).await?))
 }

@@ -1,0 +1,56 @@
+# The shipwright of every coastal town: a shop built from ordinary dialogue data.
+dialogue:
+  id: shipwright
+  status: reviewed
+  start: greet
+  nodes:
+    greet:
+      text_key: shipwright.greet
+      choices:
+        - {text_key: shipwright.buy_boat_row_small, if: {gold_at_least: 60}, effects: [{gold: -60}, {give_item: {item: boat_row_small}}], goto: sold}
+        - {text_key: shipwright.buy_boat_row_large, if: {gold_at_least: 120}, effects: [{gold: -120}, {give_item: {item: boat_row_large}}], goto: sold}
+        - {text_key: shipwright.buy_ship_small, if: {gold_at_least: 500}, effects: [{gold: -500}, {give_item: {item: ship_small}}], goto: sold}
+        - {text_key: shipwright.buy_ship_medium, if: {gold_at_least: 1200}, effects: [{gold: -1200}, {give_item: {item: ship_medium}}], goto: sold}
+        - {text_key: shipwright.buy_ship_large, if: {gold_at_least: 3000}, effects: [{gold: -3000}, {give_item: {item: ship_large}}], goto: sold}
+        - {text_key: shipwright.poor, if: {not: {gold_at_least: 60}}, goto: broke}
+        - {text_key: shipwright.leave}
+    sold:
+      text_key: shipwright.sold
+      choices:
+        - {text_key: shipwright.more, goto: greet}
+        - {text_key: shipwright.leave}
+    broke:
+      text_key: shipwright.broke
+      choices:
+        - {text_key: shipwright.leave}
+strings:
+  en:
+    shipwright.greet: "Welcome to the yard! A boat to cross the water, a ship to rule it - what will it be?"
+    shipwright.buy_boat_row_small: Small rowing boat (60 gold)
+    shipwright.buy_boat_row_large: Large rowing boat (120 gold)
+    shipwright.buy_ship_small: Small ship (500 gold)
+    shipwright.buy_ship_medium: Medium ship (1200 gold)
+    shipwright.buy_ship_large: Large ship (3000 gold)
+    shipwright.poor: I cannot afford anything yet.
+    shipwright.sold: "She is yours. Mind the waves."
+    shipwright.broke: "Come back when you have a few coins. Even a rowing boat is not free."
+    shipwright.more: Anything else?
+    shipwright.leave: Just looking.
+    shipwright.name: Shipwright
+    shipwright.bio: Sells boats and ships in the harbour.
+    harbour.name: Harbour
+  cs:
+    shipwright.greet: "Vítejte v loděnici! Člun na přeplavbu, loď na vládu nad vodou - co to bude?"
+    shipwright.buy_boat_row_small: Malý veslový člun (60 zlatých)
+    shipwright.buy_boat_row_large: Velký veslový člun (120 zlatých)
+    shipwright.buy_ship_small: Malá loď (500 zlatých)
+    shipwright.buy_ship_medium: Střední loď (1200 zlatých)
+    shipwright.buy_ship_large: Velká loď (3000 zlatých)
+    shipwright.poor: Zatím si nemohu nic dovolit.
+    shipwright.sold: "Je vaše. Pozor na vlny."
+    shipwright.broke: "Přijďte, až budete mít pár mincí. Ani veslice není zadarmo."
+    shipwright.more: Ještě něco?
+    shipwright.leave: Jen se dívám.
+    shipwright.name: Loďmistr
+    shipwright.bio: Prodává čluny a lodě v přístavu.
+    harbour.name: Přístav

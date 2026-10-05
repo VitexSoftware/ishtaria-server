@@ -8,7 +8,7 @@ use axum::{
     extract::{DefaultBodyLimit, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use rand::{rngs::OsRng, RngCore};
@@ -35,20 +35,38 @@ pub(super) struct Stats {
     water: i32,
     level: i32,
     experience: i64,
+    /// Experience at which the current level began, and at which the next one does.
+    #[sqlx(skip)]
+    level_experience: i64,
+    #[sqlx(skip)]
+    next_level_experience: i64,
+    /// `100 * level + 10 * days lived`, the number the hall of fame ranks by.
+    score: String,
+}
+
+impl Stats {
+    fn with_progress(mut self) -> Self {
+        self.level_experience = super::experience::experience_for(self.level);
+        self.next_level_experience = super::experience::experience_for(self.level + 1);
+        self
+    }
 }
 
 pub(super) async fn stats(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     id: i64,
 ) -> Result<Stats, Error> {
-    Ok(sqlx::query_as("SELECT coalesce((SELECT quantity FROM player_inventory WHERE player_id = players.id AND item_id = 'gold'), 0)::text AS gold, health, stamina, greatest(0, least(100, ceil(100 * (1 - extract(epoch FROM (now() - last_ate_at)) / 604800))))::integer AS food, water, level, experience FROM players WHERE id = $1")
-        .bind(id).fetch_one(&mut **transaction).await?)
+    let stats: Stats = sqlx::query_as("SELECT coalesce((SELECT quantity FROM player_inventory WHERE player_id = players.id AND item_id = 'gold'), 0)::text AS gold, health, stamina, greatest(0, least(100, ceil(100 * (1 - extract(epoch FROM (now() - last_ate_at)) / 604800))))::integer AS food, water, level, experience, (100::bigint * level + 10 * greatest(0, floor(extract(epoch FROM (coalesce(died_at, now()) - created_at)) / 86400))::bigint)::text AS score FROM players WHERE id = $1")
+        .bind(id).fetch_one(&mut **transaction).await?;
+    Ok(stats.with_progress())
 }
 
 #[derive(Serialize, FromRow)]
 pub(super) struct Player {
     username: String,
     character: String,
+    /// Flag the player chose to show next to their name (two capital letters), if any.
+    flag: Option<String>,
     #[sqlx(flatten)]
     stats: Stats,
     #[sqlx(skip)]
@@ -65,6 +83,10 @@ pub(super) struct Player {
 #[derive(Serialize, Default)]
 pub(super) struct Equipment {
     hand: Option<String>,
+    /// The shield, if any.
+    offhand: Option<String>,
+    /// True while a block lasts.
+    blocking: bool,
 }
 
 #[derive(Serialize)]
@@ -109,6 +131,7 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/players/login", post(login))
         .route("/players/me", get(me))
         .route("/players/me/move", post(super::movement::walk))
+        .route("/players/me/flag", put(set_flag))
         .route("/players/session", delete(logout))
         .merge(super::survival::routes())
         .layer(DefaultBodyLimit::max(2048))
@@ -198,19 +221,29 @@ pub(super) async fn profile(state: &AppState, player_id: i64) -> Result<Player, 
         transaction.commit().await?;
         return Err(Error::Obituary(notice));
     }
-    let mut player: Player = sqlx::query_as("SELECT username, character, coalesce((SELECT quantity FROM player_inventory WHERE player_id = players.id AND item_id = 'gold'), 0)::text AS gold, health, stamina, greatest(0, least(100, ceil(100 * (1 - extract(epoch FROM (now() - last_ate_at)) / 604800))))::integer AS food, water, level, experience FROM players WHERE id = $1 AND world_id = $2 FOR SHARE")
+    let mut player: Player = sqlx::query_as("SELECT username, character, flag, coalesce((SELECT quantity FROM player_inventory WHERE player_id = players.id AND item_id = 'gold'), 0)::text AS gold, health, stamina, greatest(0, least(100, ceil(100 * (1 - extract(epoch FROM (now() - last_ate_at)) / 604800))))::integer AS food, water, level, experience, (100::bigint * level + 10 * greatest(0, floor(extract(epoch FROM (coalesce(died_at, now()) - created_at)) / 86400))::bigint)::text AS score FROM players WHERE id = $1 AND world_id = $2 FOR SHARE")
         .bind(player_id).bind(state.world_id).fetch_one(&mut *transaction).await?;
+    player.stats = player.stats.with_progress();
     player.life = Some(super::survival::life(&mut transaction, player_id).await?);
     player.inventory = Some(super::survival::inventory(&mut transaction, player_id).await?);
     player.position = sqlx::query_as("SELECT position_x AS x, position_y AS y, position_z AS z, movement_sequence::text AS sequence, movement_airborne AS airborne, movement_support AS on_object FROM players WHERE id = $1 AND position_x IS NOT NULL")
         .bind(player_id).fetch_optional(&mut *transaction).await?;
-    player.equipment.hand = sqlx::query_scalar("SELECT hand FROM player_equipment WHERE player_id = $1 AND EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = hand)")
+    let held: Option<(Option<String>, Option<String>)> = sqlx::query_as("SELECT CASE WHEN EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = hand) THEN hand END, CASE WHEN EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = offhand) THEN offhand END FROM player_equipment WHERE player_id = $1")
         .bind(player_id).fetch_optional(&mut *transaction).await?;
+    (player.equipment.hand, player.equipment.offhand) = held.unwrap_or_default();
+    player.equipment.blocking = player.equipment.offhand.is_some()
+        && sqlx::query_scalar(
+            "SELECT coalesce(blocked_until > now(), false) FROM players WHERE id = $1",
+        )
+        .bind(player_id)
+        .fetch_one(&mut *transaction)
+        .await?;
     transaction.commit().await?;
     Ok(player)
 }
 
 async fn ensure_position(
+    state: &AppState,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     player_id: i64,
 ) -> Result<(), Error> {
@@ -220,6 +253,13 @@ async fn ensure_position(
             .fetch_one(&mut **transaction)
             .await?;
     if existing.is_some() {
+        return Ok(());
+    }
+    // A datadisk may say where new characters appear.
+    if let Some(position) = super::story::world::spawn_position(state).await {
+        sqlx::query("UPDATE players SET position_x = $2, position_y = $3, position_z = $4 WHERE id = $1 AND position_x IS NULL")
+            .bind(player_id).bind(position[0]).bind(position[1]).bind(position[2])
+            .execute(&mut **transaction).await?;
         return Ok(());
     }
     let unavailable = || Error::Status(StatusCode::SERVICE_UNAVAILABLE, "no safe spawn available");
@@ -268,7 +308,7 @@ async fn register(
         StatusCode::CONFLICT,
         "username already exists",
     ))?;
-    ensure_position(&mut transaction, player_id).await?;
+    ensure_position(&state, &mut transaction, player_id).await?;
     let token = new_token();
     sqlx::query("INSERT INTO player_sessions (token_hash, player_id) VALUES ($1, $2)")
         .bind(Sha256::digest(token.as_bytes()).to_vec())
@@ -315,7 +355,7 @@ async fn login(
         transaction.commit().await?;
         return Err(Error::Obituary(obituary));
     }
-    ensure_position(&mut transaction, player_id).await?;
+    ensure_position(&state, &mut transaction, player_id).await?;
     sqlx::query("DELETE FROM player_sessions WHERE player_id = $1 AND expires_at <= now()")
         .bind(player_id)
         .execute(&mut *transaction)
@@ -349,6 +389,34 @@ pub(super) async fn player_id(state: &AppState, hash: &[u8]) -> Result<i64, Erro
     sqlx::query_scalar("SELECT players.id FROM player_sessions JOIN players ON players.id = player_sessions.player_id WHERE token_hash = $1 AND expires_at > now() AND world_id = $2 AND died_at IS NULL AND banned_at IS NULL")
         .bind(hash).bind(state.world_id).fetch_optional(&state.pool).await?
         .ok_or(Error::Status(StatusCode::UNAUTHORIZED, "session expired"))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FlagRequest {
+    flag: Option<String>,
+}
+
+/// Shows (or hides, with `null`) the player's flag. A display choice only.
+async fn set_flag(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<FlagRequest>,
+) -> Result<Json<Player>, Error> {
+    let player_id = player_id(&state, &token_hash(&headers)?).await?;
+    if request
+        .flag
+        .as_deref()
+        .is_some_and(|flag| flag.len() != 2 || !flag.bytes().all(|byte| byte.is_ascii_uppercase()))
+    {
+        return Err(Error::Status(StatusCode::BAD_REQUEST, "invalid flag"));
+    }
+    sqlx::query("UPDATE players SET flag = $2 WHERE id = $1")
+        .bind(player_id)
+        .bind(&request.flag)
+        .execute(&state.pool)
+        .await?;
+    Ok(Json(profile(&state, player_id).await?))
 }
 
 async fn me(State(state): State<AppState>, headers: HeaderMap) -> Result<Json<Player>, Error> {

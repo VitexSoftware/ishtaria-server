@@ -1,10 +1,14 @@
 #!/bin/sh
 # Generate a new world heightmap and import it into the Ishtaria database.
-# Usage: ishtaria-server-init [seed] [face_size]
+# Usage: ishtaria-server-init [seed] [face_size] [datadisk-id ...]
+# Datadisk ids (see `ishtaria-server --list-datadisks`) are taken into account by the new world.
 # The server refuses to overwrite an already imported world.
 set -e
 SEED="${1:-$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')}"
 SIZE="${2:-256}"
+if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+DISKS=""
+for disk in "$@"; do DISKS="$DISKS --datadisk $disk"; done
 CONFIG="${ISHTARIA_CONFIG:-/etc/ishtaria/server.toml}"
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
@@ -12,9 +16,9 @@ command -v ishtaria-worldgen >/dev/null || { echo "ishtaria-worldgen is not inst
 ishtaria-worldgen "$SEED" "$SIZE" > "$TMP"
 chmod 0644 "$TMP"
 if [ "$(id -u)" = 0 ]; then
-    runuser -u ishtaria -- ishtaria-server "$CONFIG" --import "$TMP" --seed "$SEED" --import-only
+    runuser -u ishtaria -- ishtaria-server "$CONFIG" --import "$TMP" --seed "$SEED" --import-only $DISKS
 else
-    ishtaria-server "$CONFIG" --import "$TMP" --seed "$SEED" --import-only
+    ishtaria-server "$CONFIG" --import "$TMP" --seed "$SEED" --import-only $DISKS
 fi
 echo "World generated with seed $SEED, face size $SIZE."
 echo "Start the server: systemctl restart ishtaria-server"
