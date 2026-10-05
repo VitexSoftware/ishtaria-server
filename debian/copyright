@@ -6,6 +6,17 @@ Files: *
 Copyright: 2026 Vítězslav Dvořák <cybervitexus@gmail.com>
 License: AGPL-3.0-only
 
+Files: etc/world_colliders.json
+Copyright: Kenney (https://kenney.nl/)
+License: CC0-1.0
+Comment: Derived triangle geometry from Nature Kit, Mini Forest,
+ Platformer Kit and Survival Kit. Original notices are retained in
+ the client's assets/kenney directories.
+
+License: CC0-1.0
+ On Debian systems, the full text of the Creative Commons Zero 1.0 Universal
+ license can be found in /usr/share/common-licenses/CC0-1.0.
+
 License: AGPL-3.0-only
  GNU AFFERO GENERAL PUBLIC LICENSE
  Version 3, 19 November 2007

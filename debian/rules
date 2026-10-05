@@ -12,6 +12,7 @@ override_dh_auto_test:
 
 override_dh_auto_install:
 	install -D -m 0755 target/release/ishtaria-server debian/ishtaria-server/usr/bin/ishtaria-server
+	install -D -m 0755 debian/ishtaria-server-init debian/ishtaria-server/usr/bin/ishtaria-server-init
 	install -D -m 0640 etc/server.toml debian/ishtaria-server/etc/ishtaria/server.toml
 
 override_dh_auto_clean:

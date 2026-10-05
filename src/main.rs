@@ -1,62 +1,417 @@
-//! Ishtaria world server.
-//!
-//! Current state: configuration loading and identity bootstrap only.
-//! See the architecture chapter of ishtaria-docs for the planned layout
-//! (simulation shards over H3 cells, federation endpoint, persistence).
+mod atmosphere;
+mod environment;
+mod movement;
+mod players;
+mod survival;
+mod terrain;
 
+use atmosphere::Atmosphere;
+
+#[cfg(test)]
+mod tests;
+
+use anyhow::{bail, Context, Result};
+use axum::{
+    extract::{Path, State},
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
+    routing::get,
+    Extension, Json, Router,
+};
+use clap::Parser;
 use ishtaria_core::{RulesetVersion, ServerName};
-use serde::Deserialize;
-use std::{env, fs, process::ExitCode};
+use serde::{Deserialize, Serialize};
+use sqlx::{postgres::PgPoolOptions, FromRow, PgPool};
+use std::{env, net::SocketAddr, path::PathBuf, time::Duration};
+use terrain::Heightmap;
 
 const DEFAULT_CONFIG: &str = "/etc/ishtaria/server.toml";
 
-#[derive(Debug, Deserialize)]
+#[derive(Parser)]
+#[command(version, about)]
+struct Args {
+    #[arg(default_value = DEFAULT_CONFIG)]
+    config: PathBuf,
+    #[arg(long, requires = "seed")]
+    import: Option<PathBuf>,
+    #[arg(long, requires = "import")]
+    seed: Option<u64>,
+    /// Import the heightmap and exit without serving (used by ishtaria-server-init).
+    #[arg(long, requires = "import")]
+    import_only: bool,
+    #[arg(long, default_value_t = 0, allow_hyphen_values = true, value_parser = clap::value_parser!(i64).range(-86400..=86400))]
+    solar_offset_seconds: i64,
+}
+
+#[derive(Deserialize)]
 struct Config {
     server_name: String,
     ruleset: String,
     #[serde(default = "default_listen")]
     listen: String,
+    database_url: Option<String>,
+    atmosphere: Option<Atmosphere>,
 }
 
 fn default_listen() -> String {
     "0.0.0.0:7400".into()
 }
 
-fn main() -> ExitCode {
-    let path = env::args().nth(1).unwrap_or_else(|| DEFAULT_CONFIG.into());
-    let raw = match fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("cannot read {path}: {e}");
-            return ExitCode::FAILURE;
+#[derive(Clone)]
+struct AppState {
+    pool: PgPool,
+    world_id: i64,
+}
+
+#[derive(Serialize, FromRow)]
+struct World {
+    server_name: String,
+    ruleset: String,
+    seed: Option<String>,
+    face_size: Option<i32>,
+    sha256: Option<String>,
+    atmosphere: sqlx::types::Json<Atmosphere>,
+    #[sqlx(skip)]
+    solar: atmosphere::Solar,
+    #[sqlx(skip)]
+    messages: Vec<ServerMessage>,
+}
+
+/// Message the server wants the client to display. `system` messages come from
+/// the server itself: clients must show them distinctly and must not allow
+/// dismissing them. Player messages will use `kind: "player"` later.
+#[derive(Serialize)]
+struct ServerMessage {
+    kind: &'static str,
+    /// Stable machine code so clients can translate the fixed wording.
+    code: &'static str,
+    seconds_left: Option<i64>,
+    /// Operator-supplied free text, if any (not translated by the client).
+    text: Option<String>,
+}
+
+#[derive(FromRow)]
+struct ShutdownRow {
+    seconds_left: i64,
+    message: Option<String>,
+}
+
+const SHUTDOWN_QUERY: &str = "SELECT GREATEST(0, CEIL(EXTRACT(EPOCH FROM shutdown_at - now())))::BIGINT AS seconds_left, message FROM server_shutdown WHERE world_id = $1";
+
+struct ApiError(sqlx::Error);
+
+impl From<sqlx::Error> for ApiError {
+    fn from(error: sqlx::Error) -> Self {
+        Self(error)
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        eprintln!("database request failed: {}", self.0);
+        (StatusCode::SERVICE_UNAVAILABLE, "database unavailable").into_response()
+    }
+}
+
+async fn initialize(pool: &PgPool, cfg: &Config, import: Option<(&[u8], u64)>) -> Result<i64> {
+    if let Some(atmosphere) = &cfg.atmosphere {
+        atmosphere.validate()?;
+    }
+    sqlx::migrate!()
+        .run(pool)
+        .await
+        .context("database migration failed")?;
+    let mut transaction = pool.begin().await?;
+    sqlx::query("INSERT INTO worlds (server_name, ruleset) VALUES ($1, $2) ON CONFLICT (server_name) DO NOTHING")
+        .bind(&cfg.server_name).bind(&cfg.ruleset).execute(&mut *transaction).await?;
+    let (world_id, ruleset): (i64, String) =
+        sqlx::query_as("SELECT id, ruleset FROM worlds WHERE server_name = $1 FOR UPDATE")
+            .bind(&cfg.server_name)
+            .fetch_one(&mut *transaction)
+            .await?;
+    if ruleset != cfg.ruleset {
+        bail!("configured ruleset differs from the persisted world; use an explicit migration");
+    }
+    if let Some((pgm, seed)) = import {
+        let map = Heightmap::parse(pgm)?;
+        let existing: Option<(String, String)> =
+            sqlx::query_as("SELECT sha256, seed FROM heightmaps WHERE world_id = $1")
+                .bind(world_id)
+                .fetch_optional(&mut *transaction)
+                .await?;
+        if let Some((sha256, stored_seed)) = existing {
+            if sha256 != map.sha256 || stored_seed != seed.to_string() {
+                bail!("world already has a different heightmap or seed; refusing to overwrite");
+            }
+        } else {
+            sqlx::query("INSERT INTO heightmaps (world_id, seed, face_size, sha256, pgm, pixels) VALUES ($1, $2, $3, $4, $5, $6)")
+                .bind(world_id).bind(seed.to_string()).bind(map.face_size)
+                .bind(&map.sha256).bind(pgm).bind(&map.pixels)
+                .execute(&mut *transaction).await?;
         }
+    }
+    if let Some(atmosphere) = &cfg.atmosphere {
+        sqlx::query("UPDATE worlds SET atmosphere = $1 WHERE id = $2")
+            .bind(sqlx::types::Json(atmosphere))
+            .bind(world_id)
+            .execute(&mut *transaction)
+            .await?;
+    }
+    transaction.commit().await?;
+    Ok(world_id)
+}
+
+fn app(state: AppState) -> Router {
+    Router::new()
+        .route("/health", get(health))
+        .route("/world", get(world))
+        .route("/world/heightmap", get(heightmap))
+        .route("/world/heightmap.png", get(heightmap_png))
+        .route("/world/environment", get(world_environment))
+        .route("/world/objects", get(movement::world_objects))
+        .route("/world/memorials", get(movement::world_memorials))
+        .route("/terrain/{face}/{x}/{y}", get(sample))
+        .merge(players::routes())
+        .with_state(state)
+}
+
+async fn health(State(state): State<AppState>) -> Result<&'static str, ApiError> {
+    sqlx::query("SELECT 1").execute(&state.pool).await?;
+    Ok("ok")
+}
+
+async fn world(
+    State(state): State<AppState>,
+    offset: Option<Extension<i64>>,
+) -> Result<Json<World>, ApiError> {
+    let mut world: World = sqlx::query_as("SELECT server_name, ruleset, seed, face_size, sha256, atmosphere FROM worlds LEFT JOIN heightmaps ON heightmaps.world_id = worlds.id WHERE worlds.id = $1")
+        .bind(state.world_id).fetch_one(&state.pool).await?;
+    world.solar = atmosphere::Solar::at(
+        atmosphere::Solar::now().unix_seconds
+            + offset.map_or(0, |Extension(seconds)| seconds) as f64,
+    );
+    let shutdown: Option<ShutdownRow> = sqlx::query_as(SHUTDOWN_QUERY)
+        .bind(state.world_id)
+        .fetch_optional(&state.pool)
+        .await?;
+    world.messages = shutdown
+        .into_iter()
+        .map(|row| ServerMessage {
+            kind: "system",
+            code: "shutdown",
+            seconds_left: Some(row.seconds_left),
+            text: row.message,
+        })
+        .collect();
+    Ok(Json(world))
+}
+
+async fn heightmap(State(state): State<AppState>) -> Result<Response, ApiError> {
+    let pgm: Option<Vec<u8>> = sqlx::query_scalar("SELECT pgm FROM heightmaps WHERE world_id = $1")
+        .bind(state.world_id)
+        .fetch_optional(&state.pool)
+        .await?;
+    Ok(match pgm {
+        Some(pgm) => ([(header::CONTENT_TYPE, "image/x-portable-graymap")], pgm).into_response(),
+        None => (StatusCode::NOT_FOUND, "no heightmap imported").into_response(),
+    })
+}
+
+#[derive(Serialize)]
+struct Sample {
+    face: i32,
+    x: i32,
+    y: i32,
+    value: i32,
+}
+
+async fn heightmap_png(State(state): State<AppState>) -> Result<Response, ApiError> {
+    let map: Option<(i32, Vec<u8>)> =
+        sqlx::query_as("SELECT face_size, pixels FROM heightmaps WHERE world_id = $1")
+            .bind(state.world_id)
+            .fetch_optional(&state.pool)
+            .await?;
+    let Some((size, pixels)) = map else {
+        return Ok((StatusCode::NOT_FOUND, "no heightmap imported").into_response());
     };
-    let cfg: Config = match toml::from_str(&raw) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("invalid config {path}: {e}");
-            return ExitCode::FAILURE;
+    let encoded = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
+        let image = image::GrayImage::from_raw(size as u32 * 6, size as u32, pixels)
+            .context("invalid persisted heightmap dimensions")?;
+        let mut png = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut png, image::ImageFormat::Png)?;
+        Ok(png.into_inner())
+    })
+    .await;
+    match encoded {
+        Ok(Ok(png)) => Ok(([(header::CONTENT_TYPE, "image/png")], png).into_response()),
+        error => {
+            eprintln!("heightmap encoding failed: {error:?}");
+            Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "heightmap encoding failed",
+            )
+                .into_response())
         }
+    }
+}
+
+async fn world_environment(State(state): State<AppState>) -> Result<Response, ApiError> {
+    let map: Option<(i32, Vec<u8>, String, String)> = sqlx::query_as(
+        "SELECT face_size, pixels, seed, sha256 FROM heightmaps WHERE world_id = $1",
+    )
+    .bind(state.world_id)
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some((size, pixels, seed, sha256)) = map else {
+        return Ok((StatusCode::NOT_FOUND, "no heightmap imported").into_response());
     };
-    let name: ServerName = match cfg.server_name.parse() {
-        Ok(n) => n,
-        Err(e) => {
-            eprintln!("{e}");
-            return ExitCode::FAILURE;
+    match tokio::task::spawn_blocking(move || {
+        environment::generate(size as usize, &pixels, &seed, &sha256)
+    })
+    .await
+    {
+        Ok(Some(environment)) => Ok(Json(environment).into_response()),
+        _ => Ok((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invalid world environment",
+        )
+            .into_response()),
+    }
+}
+
+async fn sample(
+    State(state): State<AppState>,
+    Path((face, x, y)): Path<(i32, i32, i32)>,
+) -> Result<Response, ApiError> {
+    if !(0..6).contains(&face) || x < 0 || y < 0 {
+        return Ok((StatusCode::BAD_REQUEST, "invalid terrain coordinates").into_response());
+    }
+    let value: Option<i32> = sqlx::query_scalar("SELECT get_byte(pixels, y_index * 6 * face_size + face_index * face_size + x_index) FROM heightmaps CROSS JOIN (SELECT $2::integer AS face_index, $3::integer AS x_index, $4::integer AS y_index) AS coordinates WHERE world_id = $1 AND x_index < face_size AND y_index < face_size")
+        .bind(state.world_id).bind(face).bind(x).bind(y).fetch_optional(&state.pool).await?;
+    Ok(match value {
+        Some(value) => Json(Sample { face, x, y, value }).into_response(),
+        None => (StatusCode::NOT_FOUND, "heightmap or coordinates not found").into_response(),
+    })
+}
+
+async fn shutdown() {
+    let interrupt = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("cannot install SIGINT handler")
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("cannot install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! { _ = interrupt => {}, _ = terminate => {} }
+}
+
+/// Resolves once the operator's scheduled shutdown time has been reached.
+async fn shutdown_watcher(pool: PgPool, world_id: i64) {
+    let mut timer = tokio::time::interval(Duration::from_secs(2));
+    loop {
+        timer.tick().await;
+        let due: Result<Option<bool>, _> = sqlx::query_scalar(
+            "SELECT shutdown_at <= now() FROM server_shutdown WHERE world_id = $1",
+        )
+        .bind(world_id)
+        .fetch_optional(&pool)
+        .await;
+        match due {
+            Ok(Some(true)) => {
+                println!("scheduled shutdown reached, stopping");
+                return;
+            }
+            Ok(_) => {}
+            Err(_) => eprintln!("shutdown check failed"),
         }
-    };
-    let ruleset: RulesetVersion = match cfg.ruleset.parse() {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("invalid ruleset '{}': {e}", cfg.ruleset);
-            return ExitCode::FAILURE;
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let args = Args::parse();
+    let raw = tokio::fs::read_to_string(&args.config)
+        .await
+        .context("cannot read server configuration")?;
+    let cfg: Config = toml::from_str(&raw).context("invalid server configuration")?;
+    let name: ServerName = cfg.server_name.parse()?;
+    let ruleset: RulesetVersion = cfg.ruleset.parse().map_err(anyhow::Error::msg)?;
+    let listen: SocketAddr = cfg.listen.parse().context("invalid listen address")?;
+    let database_url = env::var("DATABASE_URL")
+        .ok()
+        .or_else(|| cfg.database_url.clone())
+        .context("set DATABASE_URL or database_url in server.toml")?;
+    let pgm = if let Some(path) = &args.import {
+        if tokio::fs::metadata(path).await?.len() > terrain::MAX_MAP_BYTES {
+            bail!("heightmap exceeds 16 MiB");
         }
+        Some(
+            tokio::fs::read(path)
+                .await
+                .context("cannot read heightmap")?,
+        )
+    } else {
+        None
     };
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect(&database_url)
+        .await
+        .context("cannot connect to PostgreSQL")?;
+    let world_id = initialize(&pool, &cfg, pgm.as_deref().zip(args.seed)).await?;
+    if args.import_only {
+        println!("world {name} initialised");
+        pool.close().await;
+        return Ok(());
+    }
+    let survival_state = AppState {
+        pool: pool.clone(),
+        world_id,
+    };
+    // A request left over from a previous run must not stop the new process.
+    sqlx::query("DELETE FROM server_shutdown WHERE world_id = $1")
+        .bind(world_id)
+        .execute(&pool)
+        .await?;
+    let shutdown_watch = shutdown_watcher(pool.clone(), world_id);
+    let survival_task = tokio::spawn(async move {
+        let mut timer = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            timer.tick().await;
+            if survival::settle_world(&survival_state).await.is_err() {
+                eprintln!("survival update failed");
+            }
+        }
+    });
+    let listener = tokio::net::TcpListener::bind(listen)
+        .await
+        .context("cannot bind HTTP listener")?;
     println!(
         "ishtaria-server {} – world {name}, ruleset {ruleset}, listen {}",
         env!("CARGO_PKG_VERSION"),
-        cfg.listen
+        listener.local_addr()?
     );
-    println!("simulation loop not implemented yet");
-    ExitCode::SUCCESS
+    axum::serve(
+        listener,
+        app(AppState {
+            pool: pool.clone(),
+            world_id,
+        })
+        .layer(Extension(args.solar_offset_seconds)),
+    )
+    .with_graceful_shutdown(async move {
+        tokio::select! { () = shutdown() => {}, () = shutdown_watch => {} }
+    })
+    .await?;
+    survival_task.abort();
+    pool.close().await;
+    Ok(())
 }

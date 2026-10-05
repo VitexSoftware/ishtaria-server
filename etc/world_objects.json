@@ -1,0 +1,1995 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "id": "mini-forest.tree",
+      "biomes": [
+        5
+      ],
+      "weight": 3,
+      "scale_m": 7,
+      "max_slope": 0.55,
+      "collision_radius": 0.2
+    },
+    {
+      "id": "mini-forest.plant",
+      "biomes": [
+        4,
+        5
+      ],
+      "weight": 1,
+      "scale_m": 2,
+      "max_slope": 0.7,
+      "collision_radius": 0.33
+    },
+    {
+      "id": "mini-forest.rocks",
+      "biomes": [
+        6,
+        4
+      ],
+      "weight": 1,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "collision_radius": 0.71
+    },
+    {
+      "id": "platformer.pine",
+      "biomes": [
+        5,
+        6
+      ],
+      "weight": 2,
+      "scale_m": 5,
+      "max_slope": 0.65,
+      "collision_radius": 0.3
+    },
+    {
+      "id": "platformer.snow-pine",
+      "biomes": [
+        7
+      ],
+      "weight": 2,
+      "scale_m": 5,
+      "max_slope": 0.5,
+      "collision_radius": 0.3
+    },
+    {
+      "id": "platformer.rocks",
+      "biomes": [
+        6,
+        7
+      ],
+      "weight": 1,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "collision_radius": 0.47
+    },
+    {
+      "id": "survival.tree",
+      "biomes": [
+        5
+      ],
+      "weight": 2,
+      "scale_m": 5,
+      "max_slope": 0.55,
+      "collision_radius": 0.12
+    },
+    {
+      "id": "survival.rock",
+      "biomes": [
+        3,
+        4,
+        6,
+        7
+      ],
+      "weight": 1,
+      "scale_m": 2,
+      "max_slope": 1.5,
+      "collision_radius": 0.45
+    },
+    {
+      "id": "survival.grass",
+      "biomes": [
+        4,
+        5
+      ],
+      "weight": 2,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.oak",
+      "biomes": [
+        5
+      ],
+      "weight": 3,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "collision_radius": 0.21
+    },
+    {
+      "id": "nature.pine",
+      "biomes": [
+        5,
+        6
+      ],
+      "weight": 2,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "collision_radius": 0.11
+    },
+    {
+      "id": "nature.rock",
+      "biomes": [
+        3,
+        4,
+        6,
+        7
+      ],
+      "weight": 1,
+      "scale_m": 1,
+      "max_slope": 1.5,
+      "collision_radius": 0.65
+    },
+    {
+      "id": "nature.bush",
+      "biomes": [
+        4,
+        5
+      ],
+      "weight": 1,
+      "scale_m": 2,
+      "max_slope": 0.7,
+      "collision_radius": 0.28
+    },
+    {
+      "id": "nature.cactus_short",
+      "weight": 1,
+      "scale_m": 2,
+      "max_slope": 0.4,
+      "biomes": [
+        3
+      ],
+      "collision_radius": 0.186
+    },
+    {
+      "id": "nature.cactus_tall",
+      "weight": 1,
+      "scale_m": 2,
+      "max_slope": 0.4,
+      "biomes": [
+        3
+      ],
+      "collision_radius": 0.216
+    },
+    {
+      "id": "nature.flower_purpleA",
+      "weight": 0.333333,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.flower_purpleB",
+      "weight": 0.333333,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.flower_purpleC",
+      "weight": 0.333333,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.flower_redA",
+      "weight": 0.333333,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.flower_redB",
+      "weight": 0.333333,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.flower_redC",
+      "weight": 0.333333,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.flower_yellowA",
+      "weight": 0.333333,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.flower_yellowB",
+      "weight": 0.333333,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.flower_yellowC",
+      "weight": 0.333333,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.grass",
+      "weight": 1.75,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.grass_large",
+      "weight": 1.75,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.grass_leafs",
+      "weight": 1.75,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.grass_leafsLarge",
+      "weight": 1.75,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.log",
+      "weight": 0.5,
+      "scale_m": 2,
+      "max_slope": 0.4,
+      "biomes": [
+        5
+      ],
+      "collision_radius": 0.369
+    },
+    {
+      "id": "nature.log_large",
+      "weight": 0.5,
+      "scale_m": 2,
+      "max_slope": 0.4,
+      "biomes": [
+        5
+      ],
+      "collision_radius": 0.529
+    },
+    {
+      "id": "nature.log_stack",
+      "weight": 0.5,
+      "scale_m": 2,
+      "max_slope": 0.4,
+      "biomes": [
+        5
+      ],
+      "collision_radius": 0.408
+    },
+    {
+      "id": "nature.log_stackLarge",
+      "weight": 0.5,
+      "scale_m": 2,
+      "max_slope": 0.4,
+      "biomes": [
+        5
+      ],
+      "collision_radius": 0.465
+    },
+    {
+      "id": "nature.mushroom_red",
+      "weight": 0.5,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.mushroom_redGroup",
+      "weight": 0.5,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.mushroom_redTall",
+      "weight": 0.5,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.mushroom_tan",
+      "weight": 0.5,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.mushroom_tanGroup",
+      "weight": 0.5,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.mushroom_tanTall",
+      "weight": 0.5,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "nature.plant_bushDetailed",
+      "weight": 0.375,
+      "scale_m": 2,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0.302
+    },
+    {
+      "id": "nature.plant_bushLarge",
+      "weight": 0.375,
+      "scale_m": 2,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0.188
+    },
+    {
+      "id": "nature.plant_bushLargeTriangle",
+      "weight": 0.375,
+      "scale_m": 2,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0.254
+    },
+    {
+      "id": "nature.plant_bushSmall",
+      "weight": 0.375,
+      "scale_m": 2,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0.192
+    },
+    {
+      "id": "nature.plant_bushTriangle",
+      "weight": 0.375,
+      "scale_m": 2,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0.239
+    },
+    {
+      "id": "nature.plant_flatShort",
+      "weight": 0.375,
+      "scale_m": 2,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0.139
+    },
+    {
+      "id": "nature.plant_flatTall",
+      "weight": 0.375,
+      "scale_m": 2,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0.136
+    },
+    {
+      "id": "nature.rock_largeB",
+      "weight": 0.25,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.596
+    },
+    {
+      "id": "nature.rock_largeC",
+      "weight": 0.25,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.606
+    },
+    {
+      "id": "nature.rock_largeD",
+      "weight": 0.25,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.59
+    },
+    {
+      "id": "nature.rock_largeE",
+      "weight": 0.25,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.587
+    },
+    {
+      "id": "nature.rock_largeF",
+      "weight": 0.25,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.591
+    },
+    {
+      "id": "nature.rock_smallA",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.221
+    },
+    {
+      "id": "nature.rock_smallB",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.256
+    },
+    {
+      "id": "nature.rock_smallC",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.197
+    },
+    {
+      "id": "nature.rock_smallD",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.213
+    },
+    {
+      "id": "nature.rock_smallE",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.181
+    },
+    {
+      "id": "nature.rock_smallF",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.177
+    },
+    {
+      "id": "nature.rock_smallFlatA",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.255
+    },
+    {
+      "id": "nature.rock_smallFlatB",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.281
+    },
+    {
+      "id": "nature.rock_smallFlatC",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.238
+    },
+    {
+      "id": "nature.rock_smallG",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.343
+    },
+    {
+      "id": "nature.rock_smallH",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.231
+    },
+    {
+      "id": "nature.rock_smallI",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.207
+    },
+    {
+      "id": "nature.rock_smallTopA",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.278
+    },
+    {
+      "id": "nature.rock_smallTopB",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.366
+    },
+    {
+      "id": "nature.rock_tallA",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.522
+    },
+    {
+      "id": "nature.rock_tallB",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.478
+    },
+    {
+      "id": "nature.rock_tallC",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.275
+    },
+    {
+      "id": "nature.rock_tallD",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.268
+    },
+    {
+      "id": "nature.rock_tallE",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.264
+    },
+    {
+      "id": "nature.rock_tallF",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.257
+    },
+    {
+      "id": "nature.rock_tallG",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.246
+    },
+    {
+      "id": "nature.rock_tallH",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.332
+    },
+    {
+      "id": "nature.rock_tallI",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.267
+    },
+    {
+      "id": "nature.rock_tallJ",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.271
+    },
+    {
+      "id": "nature.stone_largeA",
+      "weight": 0.25,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.59
+    },
+    {
+      "id": "nature.stone_largeB",
+      "weight": 0.25,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.596
+    },
+    {
+      "id": "nature.stone_largeC",
+      "weight": 0.25,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.606
+    },
+    {
+      "id": "nature.stone_largeD",
+      "weight": 0.25,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.59
+    },
+    {
+      "id": "nature.stone_largeE",
+      "weight": 0.25,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.587
+    },
+    {
+      "id": "nature.stone_largeF",
+      "weight": 0.25,
+      "scale_m": 3,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.591
+    },
+    {
+      "id": "nature.stone_smallA",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.221
+    },
+    {
+      "id": "nature.stone_smallB",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.256
+    },
+    {
+      "id": "nature.stone_smallC",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.197
+    },
+    {
+      "id": "nature.stone_smallD",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.213
+    },
+    {
+      "id": "nature.stone_smallE",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.181
+    },
+    {
+      "id": "nature.stone_smallF",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.177
+    },
+    {
+      "id": "nature.stone_smallFlatA",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.255
+    },
+    {
+      "id": "nature.stone_smallFlatB",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.281
+    },
+    {
+      "id": "nature.stone_smallFlatC",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.238
+    },
+    {
+      "id": "nature.stone_smallG",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.343
+    },
+    {
+      "id": "nature.stone_smallH",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.231
+    },
+    {
+      "id": "nature.stone_smallI",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.207
+    },
+    {
+      "id": "nature.stone_smallTopA",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.278
+    },
+    {
+      "id": "nature.stone_smallTopB",
+      "weight": 0.107143,
+      "scale_m": 1.5,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.366
+    },
+    {
+      "id": "nature.stone_tallA",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.522
+    },
+    {
+      "id": "nature.stone_tallB",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.478
+    },
+    {
+      "id": "nature.stone_tallC",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.275
+    },
+    {
+      "id": "nature.stone_tallD",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.268
+    },
+    {
+      "id": "nature.stone_tallE",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.264
+    },
+    {
+      "id": "nature.stone_tallF",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.257
+    },
+    {
+      "id": "nature.stone_tallG",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.246
+    },
+    {
+      "id": "nature.stone_tallH",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.332
+    },
+    {
+      "id": "nature.stone_tallI",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.267
+    },
+    {
+      "id": "nature.stone_tallJ",
+      "weight": 0.2,
+      "scale_m": 6,
+      "max_slope": 1.5,
+      "biomes": [
+        6,
+        7
+      ],
+      "collision_radius": 0.271
+    },
+    {
+      "id": "nature.stump_old",
+      "weight": 0.285714,
+      "scale_m": 2,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.199
+    },
+    {
+      "id": "nature.stump_oldTall",
+      "weight": 0.285714,
+      "scale_m": 2,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.199
+    },
+    {
+      "id": "nature.stump_round",
+      "weight": 0.285714,
+      "scale_m": 2,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.186
+    },
+    {
+      "id": "nature.stump_roundDetailed",
+      "weight": 0.285714,
+      "scale_m": 2,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.199
+    },
+    {
+      "id": "nature.stump_square",
+      "weight": 0.285714,
+      "scale_m": 2,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.213
+    },
+    {
+      "id": "nature.stump_squareDetailed",
+      "weight": 0.285714,
+      "scale_m": 2,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.242
+    },
+    {
+      "id": "nature.stump_squareDetailedWide",
+      "weight": 0.285714,
+      "scale_m": 2,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.324
+    },
+    {
+      "id": "nature.tree_blocks",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.099
+    },
+    {
+      "id": "nature.tree_blocks_dark",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.099
+    },
+    {
+      "id": "nature.tree_blocks_fall",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.099
+    },
+    {
+      "id": "nature.tree_cone",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.107
+    },
+    {
+      "id": "nature.tree_cone_dark",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.107
+    },
+    {
+      "id": "nature.tree_cone_fall",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.107
+    },
+    {
+      "id": "nature.tree_default",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.147
+    },
+    {
+      "id": "nature.tree_default_dark",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.147
+    },
+    {
+      "id": "nature.tree_default_fall",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.147
+    },
+    {
+      "id": "nature.tree_detailed",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.09
+    },
+    {
+      "id": "nature.tree_detailed_dark",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.09
+    },
+    {
+      "id": "nature.tree_detailed_fall",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.09
+    },
+    {
+      "id": "nature.tree_fat",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.098
+    },
+    {
+      "id": "nature.tree_fat_darkh",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.098
+    },
+    {
+      "id": "nature.tree_fat_fall",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.098
+    },
+    {
+      "id": "nature.tree_oak_dark",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.207
+    },
+    {
+      "id": "nature.tree_oak_fall",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.207
+    },
+    {
+      "id": "nature.tree_palm",
+      "weight": 0.5,
+      "scale_m": 4,
+      "max_slope": 0.4,
+      "biomes": [
+        3
+      ],
+      "collision_radius": 0.077
+    },
+    {
+      "id": "nature.tree_palmBend",
+      "weight": 0.5,
+      "scale_m": 4,
+      "max_slope": 0.4,
+      "biomes": [
+        3
+      ],
+      "collision_radius": 0.093
+    },
+    {
+      "id": "nature.tree_palmDetailedShort",
+      "weight": 0.5,
+      "scale_m": 4,
+      "max_slope": 0.4,
+      "biomes": [
+        3
+      ],
+      "collision_radius": 0.12
+    },
+    {
+      "id": "nature.tree_palmDetailedTall",
+      "weight": 0.5,
+      "scale_m": 4,
+      "max_slope": 0.4,
+      "biomes": [
+        3
+      ],
+      "collision_radius": 0.12
+    },
+    {
+      "id": "nature.tree_palmShort",
+      "weight": 0.5,
+      "scale_m": 4,
+      "max_slope": 0.4,
+      "biomes": [
+        3
+      ],
+      "collision_radius": 0.12
+    },
+    {
+      "id": "nature.tree_palmTall",
+      "weight": 0.5,
+      "scale_m": 4,
+      "max_slope": 0.4,
+      "biomes": [
+        3
+      ],
+      "collision_radius": 0.12
+    },
+    {
+      "id": "nature.tree_pineDefaultB",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.107
+    },
+    {
+      "id": "nature.tree_pineGroundA",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.278
+    },
+    {
+      "id": "nature.tree_pineGroundB",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.278
+    },
+    {
+      "id": "nature.tree_pineRoundA",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.357
+    },
+    {
+      "id": "nature.tree_pineRoundB",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.317
+    },
+    {
+      "id": "nature.tree_pineRoundC",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.278
+    },
+    {
+      "id": "nature.tree_pineRoundD",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.278
+    },
+    {
+      "id": "nature.tree_pineRoundE",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.107
+    },
+    {
+      "id": "nature.tree_pineRoundF",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.111
+    },
+    {
+      "id": "nature.tree_pineSmallA",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.132
+    },
+    {
+      "id": "nature.tree_pineSmallB",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.251
+    },
+    {
+      "id": "nature.tree_pineSmallC",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.279
+    },
+    {
+      "id": "nature.tree_pineSmallD",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.253
+    },
+    {
+      "id": "nature.tree_pineTallA",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.066
+    },
+    {
+      "id": "nature.tree_pineTallA_detailed",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.109
+    },
+    {
+      "id": "nature.tree_pineTallB",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.066
+    },
+    {
+      "id": "nature.tree_pineTallB_detailed",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.099
+    },
+    {
+      "id": "nature.tree_pineTallC",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.066
+    },
+    {
+      "id": "nature.tree_pineTallC_detailed",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.111
+    },
+    {
+      "id": "nature.tree_pineTallD",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.066
+    },
+    {
+      "id": "nature.tree_pineTallD_detailed",
+      "weight": 0.227273,
+      "scale_m": 4,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.099
+    },
+    {
+      "id": "nature.tree_plateau",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.093
+    },
+    {
+      "id": "nature.tree_plateau_dark",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.093
+    },
+    {
+      "id": "nature.tree_plateau_fall",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.093
+    },
+    {
+      "id": "nature.tree_simple",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.058
+    },
+    {
+      "id": "nature.tree_simple_dark",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.058
+    },
+    {
+      "id": "nature.tree_simple_fall",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.058
+    },
+    {
+      "id": "nature.tree_small",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.058
+    },
+    {
+      "id": "nature.tree_small_dark",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.058
+    },
+    {
+      "id": "nature.tree_small_fall",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.058
+    },
+    {
+      "id": "nature.tree_tall",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.14
+    },
+    {
+      "id": "nature.tree_tall_dark",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.14
+    },
+    {
+      "id": "nature.tree_tall_fall",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.14
+    },
+    {
+      "id": "nature.tree_thin",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.051
+    },
+    {
+      "id": "nature.tree_thin_dark",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.051
+    },
+    {
+      "id": "nature.tree_thin_fall",
+      "weight": 0.242424,
+      "scale_m": 4,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.051
+    }
+  ]
+}

@@ -9,6 +9,22 @@ authors = ["Vítězslav Dvořák <cybervitexus@gmail.com>"]
 rust-version = "1.80"
 
 [dependencies]
+anyhow = "1"
+argon2 = "0.5.3"
+axum = "0.8"
+clap = { version = "4", features = ["derive"] }
+image = { version = "=0.25.5", default-features = false, features = ["pnm", "png"] }
 ishtaria-core = { git = "https://github.com/VitexSoftware/ishtaria-core", branch = "main" }
+parry2d-f64 = "0.17.6"
+parry3d-f64 = "0.17.6"
+rand = "0.8"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "migrate", "macros", "json"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "fs", "sync"] }
 toml = "0.8"
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }

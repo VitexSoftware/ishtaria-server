@@ -6,5 +6,18 @@ if [ "$1" = "configure" ]; then
     fi
     chgrp ishtaria /etc/ishtaria/server.toml
     chmod 0640 /etc/ishtaria/server.toml
+    # Create the PostgreSQL role and database for peer authentication over the
+    # local socket. Existing roles and databases are never touched.
+    if command -v psql >/dev/null && getent passwd postgres >/dev/null \
+        && runuser -u postgres -- psql -Atc 'SELECT 1' >/dev/null 2>&1; then
+        if [ "$(runuser -u postgres -- psql -Atc "SELECT 1 FROM pg_roles WHERE rolname='ishtaria'")" != 1 ]; then
+            runuser -u postgres -- createuser ishtaria
+        fi
+        if [ "$(runuser -u postgres -- psql -Atc "SELECT 1 FROM pg_database WHERE datname='ishtaria'")" != 1 ]; then
+            runuser -u postgres -- createdb -O ishtaria ishtaria
+        fi
+    else
+        echo "ishtaria-server: PostgreSQL is not running; create role and database 'ishtaria' manually (see README)." >&2
+    fi
 fi
 #DEBHELPER#
