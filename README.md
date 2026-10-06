@@ -29,7 +29,7 @@ curl --fail http://localhost:7400/terrain/0/128/128
 curl --fail http://localhost:7400/world/heightmap -o planet.pgm
 ```
 
-`GET /health` checks PostgreSQL availability; `/world` returns world metadata; `/world/heightmap` downloads the original PGM; `/terrain/{face}/{x}/{y}` returns an 8-bit height sample. Face indices follow the worldgen strip order: +X, -X, +Y, -Y, +Z, -Z; coordinates are zero-based, with y increasing downwards. This raw sample endpoint does not infer metres because PGM does not store amplitude. Missing maps or out-of-bounds coordinates return 404; invalid coordinates return 400; database failures return 503. The world/terrain API is read-only and unauthenticated. Restrict network access or use a reverse proxy before exposing it publicly. SIGINT and SIGTERM shut the server down gracefully.
+`GET /health` checks PostgreSQL availability; `/world` returns world metadata (including `server_version`, e.g. `0.1.0`); `/world/heightmap` downloads the original PGM; `/terrain/{face}/{x}/{y}` returns an 8-bit height sample. Face indices follow the worldgen strip order: +X, -X, +Y, -Y, +Z, -Z; coordinates are zero-based, with y increasing downwards. This raw sample endpoint does not infer metres because PGM does not store amplitude. Missing maps or out-of-bounds coordinates return 404; invalid coordinates return 400; database failures return 503. The world/terrain API is read-only and unauthenticated. Restrict network access or use a reverse proxy before exposing it publicly. SIGINT and SIGTERM shut the server down gracefully.
 
 ### Solar Clock
 

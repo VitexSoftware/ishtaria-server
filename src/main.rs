@@ -108,6 +108,8 @@ struct World {
     sha256: Option<String>,
     atmosphere: sqlx::types::Json<Atmosphere>,
     #[sqlx(skip)]
+    server_version: &'static str,
+    #[sqlx(skip)]
     solar: atmosphere::Solar,
     #[sqlx(skip)]
     messages: Vec<ServerMessage>,
@@ -242,6 +244,7 @@ async fn world(
 ) -> Result<Json<World>, ApiError> {
     let mut world: World = sqlx::query_as("SELECT server_name, ruleset, seed, face_size, sha256, atmosphere FROM worlds LEFT JOIN heightmaps ON heightmaps.world_id = worlds.id WHERE worlds.id = $1")
         .bind(state.world_id).fetch_one(&state.pool).await?;
+    world.server_version = env!("CARGO_PKG_VERSION");
     world.solar = atmosphere::Solar::at(
         atmosphere::Solar::now().unix_seconds
             + offset.map_or(0, |Extension(seconds)| seconds) as f64,

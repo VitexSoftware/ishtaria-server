@@ -1755,6 +1755,7 @@ async fn imported_map_survives_restart_and_http_roundtrip(pool: PgPool) {
     assert!(text.contains(&decoded.sha256));
     assert!(text.contains("\"seed\":\"42\""));
     let document: serde_json::Value = serde_json::from_slice(&metadata).unwrap();
+    assert_eq!(document["server_version"], env!("CARGO_PKG_VERSION"));
     let solar = &document["solar"];
     assert_eq!(solar["version"], 1);
     let seconds = solar["unix_seconds"].as_f64().unwrap();
