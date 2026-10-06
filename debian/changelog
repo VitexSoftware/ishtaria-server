@@ -1,3 +1,9 @@
+ishtaria-server (0.2.0) unstable; urgency=medium
+
+  * Release 0.2.0: server_version in /world, animals, butchering, milking.
+
+ -- Vítězslav Dvořák <cybervitexus@gmail.com>  Tue, 06 Oct 2026 20:35:25 +0200
+
 ishtaria-server (0.1.0) unstable; urgency=medium
 
   * Initial packaging.
