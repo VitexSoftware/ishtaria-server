@@ -19,6 +19,9 @@ const PRESENCE_SECONDS: f64 = 120.0;
 /// Water one drink from fresh water restores, and how far from the water the character may stand.
 const DRINK_WATER: f64 = 25.0;
 const DRINK_REACH_M: f64 = 6.0;
+/// Stamina a jump takes at once, on top of what walking or running costs; a running jump costs more.
+pub(super) const JUMP_STAMINA: f64 = 5.0;
+const RUN_JUMP_STAMINA: f64 = 8.0;
 
 #[derive(FromRow)]
 struct Reserves {
@@ -77,6 +80,23 @@ async fn rest(transaction: &mut Transaction<'_, Postgres>, id: i64) -> Result<bo
         return Ok(false);
     }
     Ok(true)
+}
+
+/// Charges the stamina of a take-off.
+pub(super) async fn jump(
+    transaction: &mut Transaction<'_, Postgres>,
+    id: i64,
+    running: bool,
+) -> Result<(), Error> {
+    let mut value = reserves(transaction, id).await?;
+    value.stamina = (value.stamina
+        - if running {
+            RUN_JUMP_STAMINA
+        } else {
+            JUMP_STAMINA
+        })
+    .max(0.0);
+    save_reserves(transaction, id, &value).await
 }
 
 pub(super) async fn activity(

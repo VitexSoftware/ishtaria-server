@@ -704,6 +704,7 @@ mod unit_tests {
                 || name.starts_with("birch")
                 || name.starts_with("palm");
             let is_rock = name.starts_with("rock") || name.starts_with("stone");
+            let is_logs = name.starts_with("log");
             match resource_of(model) {
                 Some(resource) if is_tree => {
                     assert_eq!(resource.kind, "tree", "{model}");
@@ -712,6 +713,9 @@ mod unit_tests {
                 Some(resource) if is_rock => {
                     assert_eq!(resource.kind, "rock", "{model}");
                     rocks += 1;
+                }
+                Some(resource) if is_logs => {
+                    assert_eq!(resource.kind, "logs", "{model}");
                 }
                 Some(resource) => panic!("{model} must not be harvestable as {}", resource.id),
                 None => assert!(!is_tree && !is_rock, "{model} has no resource"),

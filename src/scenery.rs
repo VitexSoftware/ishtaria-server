@@ -13,8 +13,12 @@ use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 /// Metres in one unit of a kit's modular pieces (a wall panel is one unit wide and high).
 pub const MODULE_M: f64 = 2.5;
-/// Castle pieces are larger so that a town wall is not made of thousands of panels.
-const WALL_M: f64 = 4.0;
+/// Metres in one unit of a house's walls. The client draws people about twice their real height
+/// next to the kits' units, so houses are twice the module to let a player walk through a door.
+const HOUSE_M: f64 = 2.0 * MODULE_M;
+/// Castle pieces are larger so that a town wall is not made of thousands of panels. Twice the
+/// module, like the houses, so that the wall stands taller than the people and the houses.
+const WALL_M: f64 = 8.0;
 const GRAVE_M: f64 = 2.0;
 /// Metres per model unit of a weeping willow (the model stands 3.3 units tall).
 const WILLOW_M: f64 = 2.0;
@@ -28,12 +32,12 @@ const FORTRESS_WALL_M: f64 = 5.0;
 /// in metres that keeps neighbours clear of it.
 const LANDMARKS: [(&str, f64, f64); 7] = [
     ("quaternius.house", 5.0, 6.0),
-    ("quaternius.fantasy_house", 2.4, 5.5),
+    ("quaternius.fantasy_house", 4.5, 6.5),
     ("quaternius.barracks", 4.5, 6.0),
     ("quaternius.temple", 3.0, 6.0),
-    ("quaternius.bell_tower", 2.5, 5.5),
-    ("quaternius.watch_tower", 6.0, 5.0),
-    ("quaternius.stone_tower", 6.0, 4.5),
+    ("quaternius.bell_tower", 6.0, 7.5),
+    ("quaternius.watch_tower", 12.0, 6.5),
+    ("quaternius.stone_tower", 14.0, 6.0),
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -152,7 +156,7 @@ fn facing(dx: f64, dz: f64) -> f64 {
 /// A house of `width` x 2 modules, door and windows in front (+Z of the house), gable roof.
 /// `(cx, cz)` is its centre, `yaw` turns it as a whole.
 fn house(rng: &mut Rng, cx: f64, cz: f64, yaw: f64, width: usize, props: &mut Vec<LocalProp>) {
-    let m = MODULE_M;
+    let m = HOUSE_M;
     let place =
         |lx: f64, lz: f64, y: f64, model: &str, own_yaw: f64, props: &mut Vec<LocalProp>| {
             let (rx, rz) = rotate(lx, lz, yaw);
@@ -276,10 +280,10 @@ pub fn settlement(
         let angle = rng.between(0.0, TAU);
         let distance = rng.between(15.0, radius - 6.0);
         let (x, z) = (distance * angle.cos(), distance * angle.sin());
-        if x.abs() < 6.0 || z.abs() < 6.0 {
+        if x.abs() < 12.0 || z.abs() < 12.0 {
             continue;
         }
-        if centers.iter().any(|(ox, oz)| (ox - x).hypot(oz - z) < 14.0) {
+        if centers.iter().any(|(ox, oz)| (ox - x).hypot(oz - z) < 22.0) {
             continue;
         }
         centers.push((x, z));
@@ -327,8 +331,8 @@ fn wall_radius(size: Size) -> f64 {
 }
 
 /// A fixed spot of a walled town in its local frame, for places that datadisks pin to it:
-/// `gate` is just inside the main gate in the north wall (towards -Z), `alley` the back alley
-/// beside it. Only towns have a wall, so other sizes have no such spots.
+/// `gate` is just inside the main gate in the north wall (towards -Z), `alley` a back alley in
+/// the far south-west corner of the town, well out of the gate guard's sight and hearing. Only towns have a wall, so other sizes have no such spots.
 pub fn town_spot(size: Size, name: &str) -> Option<(f64, f64)> {
     if size != Size::Town {
         return None;
@@ -337,15 +341,15 @@ pub fn town_spot(size: Size, name: &str) -> Option<(f64, f64)> {
     let wall = wall_radius(size) * (TAU / 32.0).cos();
     match name {
         "gate" => Some((0.0, -(wall - 5.0))),
-        "alley" => Some((ALLEY_X, -(wall - 9.0))),
+        "alley" => Some(ALLEY),
         _ => None,
     }
 }
 
-/// How far beside the road the back alley lies.
-const ALLEY_X: f64 = -12.0;
+/// Where the back alley lies: behind houses, about 150 m from the north gate.
+const ALLEY: (f64, f64) = (-45.0, 50.0);
 
-/// The back alley behind the gate: a few crates and barrels stacked against the wall.
+/// The back alley far from the gate: a few crates and barrels stacked against the wall.
 fn alley(props: &mut Vec<LocalProp>, size: Size) {
     let Some((x, z)) = town_spot(size, "alley") else {
         return;
@@ -404,8 +408,8 @@ fn wall(props: &mut Vec<LocalProp>, radius: f64, sea: Option<(f64, f64)>) {
             } else {
                 "castle.wall"
             };
-            // Castle wall pieces run along their local X axis: turn that along the side.
-            props.push(LocalProp::new(model, x, z, along - FRAC_PI_2, WALL_M));
+            // Castle wall pieces run along their local Z axis: turn that along the side.
+            props.push(LocalProp::new(model, x, z, along, WALL_M));
         }
     }
     for k in 0..SIDES {
@@ -776,7 +780,7 @@ pub fn fortress(seed: &str, id: &str) -> Vec<LocalProp> {
             distance * angle.cos(),
             distance * angle.sin(),
             facing(-angle.cos(), -angle.sin()),
-            6.0,
+            if k % 2 == 0 { 14.0 } else { 12.0 },
         ));
     }
     props
@@ -974,7 +978,7 @@ mod tests {
     }
 
     #[test]
-    fn a_town_has_a_gate_on_each_road_and_a_back_alley_inside_the_north_one() {
+    fn a_town_has_a_gate_on_each_road_and_a_back_alley_far_from_the_north_one() {
         let props = settlement("7", "x", Size::Town, None);
         let gates: Vec<_> = props
             .iter()
@@ -992,7 +996,7 @@ mod tests {
             .unwrap();
         assert!(gx.abs() < 1.0 && (gz - north.z).abs() < 6.0 && gz > north.z);
         let (ax, az) = town_spot(Size::Town, "alley").unwrap();
-        assert!((az - gz).abs() < 6.0 && ax < -6.0);
+        assert!((ax - gx).hypot(az - gz) > 120.0);
         assert!(props
             .iter()
             .any(|p| p.model == "retro.barrels" && (p.x - ax).hypot(p.z - az) < 4.0));

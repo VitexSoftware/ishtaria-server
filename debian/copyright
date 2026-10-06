@@ -13,6 +13,12 @@ Comment: Derived triangle geometry from Nature Kit, Mini Forest,
  Platformer Kit and Survival Kit. Original notices are retained in
  the client's assets/kenney directories.
 
+Files: assets/music/graveyard_midnightcem.ogg
+Copyright: Tozan (Midnightcem, https://opengameart.org/content/midnightcem)
+License: CC0-1.0
+Comment: Default music of generated graveyards. The source is 8 kHz and very quiet,
+ so it was raised by 10 dB and converted to OGG Vorbis.
+
 License: CC0-1.0
  On Debian systems, the full text of the Creative Commons Zero 1.0 Universal
  license can be found in /usr/share/common-licenses/CC0-1.0.

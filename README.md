@@ -438,6 +438,10 @@ migration `0034_creatures.sql`).
 
 ## Story datadisks
 
+Graveyards generated around towns play the default track `assets/music/graveyard_midnightcem.ogg` (*Midnightcem* by Tozan, CC0;
+installed to `/usr/share/ishtaria-server/music/`, override the directory with `ISHTARIA_ASSETS_DIR`; without the file they are silent).
+A datadisk's own graveyard names its own music in its place.
+
 A datadisk (directory under `/usr/share/ishtaria/datadisks/<id>/`, override with `ISHTARIA_DATADISK_DIR`) adds
 places, characters, dialogue trees and quests to a world; several disks can be combined. Format and API:
 [docs](https://vitexsoftware.github.io/ishtaria-docs/architecture/story.html) and

@@ -7,7 +7,7 @@
 //! and ships for gold.
 
 use super::{
-    disk::{Dialogue, Disk, HeightRange, Manifest, Near, Npc, Place, Requires, Scenery},
+    disk::{Dialogue, Disk, HeightRange, Manifest, Music, Near, Npc, Place, Requires, Scenery},
     placement::{self, Ground, Placed},
     Story,
 };
@@ -17,11 +17,31 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 
 const DEFAULT_COUNT: usize = 36;
 const SPACING_M: f64 = 120_000.0;
 const SHIPWRIGHT: &str = include_str!("../../etc/shipwright.yaml");
 const GATE_GUARD: &str = include_str!("../../etc/gate_guard.yaml");
+/// Directory with the files the server itself ships (override with `ISHTARIA_ASSETS_DIR`).
+const DEFAULT_ASSETS_DIR: &str = "/usr/share/ishtaria-server";
+/// Default music of every generated graveyard, below the assets directory.
+const GRAVEYARD_MUSIC: &str = "music/graveyard_midnightcem.ogg";
+/// How far from a graveyard its music is heard.
+const GRAVEYARD_MUSIC_RADIUS_M: f64 = 70.0;
+
+fn assets_dir() -> PathBuf {
+    std::env::var_os("ISHTARIA_ASSETS_DIR").map_or_else(
+        || {
+            if cfg!(test) {
+                PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/assets"))
+            } else {
+                PathBuf::from(DEFAULT_ASSETS_DIR)
+            }
+        },
+        PathBuf::from,
+    )
+}
 
 /// How many settlements a world grows.
 pub fn count() -> usize {
@@ -119,9 +139,36 @@ fn size_name(size: Size) -> &'static str {
     }
 }
 
+/// Adds the default graveyard track to the disk and returns its id, if the file is installed.
+fn graveyard_music(disk: &mut Disk) -> Option<String> {
+    let path = assets_dir().join(GRAVEYARD_MUSIC);
+    let bytes = std::fs::read(&path).ok()?;
+    let relative = "media/music/graveyard.ogg";
+    disk.music.push(Music {
+        id: "graveyard".to_owned(),
+        file: relative.to_owned(),
+        title_key: "music.graveyard".to_owned(),
+        looped: true,
+    });
+    disk.media.insert(
+        relative.to_owned(),
+        (path, format!("{:x}", Sha256::digest(&bytes))),
+    );
+    for language in ["en", "cs"] {
+        disk.strings.get_mut(language).unwrap().insert(
+            "music.graveyard".to_owned(),
+            "Midnightcem (Tozan, CC0)".to_owned(),
+        );
+    }
+    Some("graveyard".to_owned())
+}
+
 /// The built-in disk `world`: `count` settlements and their graveyards.
 pub fn world_disk(seed: &str, count: usize) -> Disk {
     let mut disk = empty_disk(manifest("world", "Settlements"));
+    // Without the file (a server installed without its assets) the graveyards are silent
+    // rather than the world broken.
+    let graveyard_music = graveyard_music(&mut disk);
     for index in 0..count {
         let size = size_of(seed, index);
         let name = town_name(seed, index);
@@ -167,8 +214,8 @@ pub fn world_disk(seed: &str, count: usize) -> Disk {
             spacing_m: None,
             spawn: false,
             at: None,
-            music: None,
-            music_radius_m: None,
+            music: graveyard_music.clone(),
+            music_radius_m: graveyard_music.as_ref().map(|_| GRAVEYARD_MUSIC_RADIUS_M),
             scenery: Some(Scenery {
                 preset: "graveyard".to_owned(),
                 size: None,

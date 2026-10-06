@@ -476,6 +476,15 @@ fn every_world_grows_towns_with_graveyards_and_harbours_with_shipwrights() {
     );
     assert_eq!(disk.npcs.len(), gates, "a guard at every gate");
     let mut story = Story::compose(vec![disk]).unwrap();
+    assert!(
+        story
+            .anchors
+            .iter()
+            .filter(|a| a.place.kind == "graveyard")
+            .all(|a| a.place.music.as_deref() == Some("world:graveyard")),
+        "every generated graveyard plays the server's default track"
+    );
+    assert!(story.media.contains_key("world/media/music/graveyard.ogg"));
     let mut sites: std::collections::HashMap<_, _> = place_anchors(&story, &Flat, "42", &[])
         .unwrap()
         .into_iter()
@@ -645,9 +654,9 @@ fn the_endland_characters_stand_in_different_parts_of_the_town() {
         .filter(|npc| npc.id != "endland:faust_graveyard")
         .collect();
     assert_eq!(town.len(), 5);
-    // Faust, Fawn and the guard wait at the north gate and in the back alley behind it; the
-    // others stand elsewhere in the town.
-    let at_gate = |id: &str| ["endland:faust", "endland:fawn", "endland:gate_guard"].contains(&id);
+    // Faust and the guard wait at the north gate; Fawn hides in a back alley far away, out of the
+    // guard's sight and hearing; the others stand elsewhere in the town.
+    let at_gate = |id: &str| ["endland:faust", "endland:gate_guard"].contains(&id);
     let metres = |first: &[f64; 3], second: &[f64; 3]| {
         ((0..3).map(|a| (first[a] - second[a]).powi(2)).sum::<f64>()).sqrt()
     };

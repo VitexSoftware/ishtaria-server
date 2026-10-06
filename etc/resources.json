@@ -267,6 +267,42 @@
           "max": 1
         }
       ]
+    },
+    {
+      "id": "fallen_log",
+      "kind": "logs",
+      "tools": {
+        "axe": 2,
+        "pickaxe": 1
+      },
+      "hits": 2,
+      "regrow_minutes": 120,
+      "models": ["nature.log", "nature.log_large"],
+      "drops": [
+        {
+          "item": "oak_log",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "id": "log_pile",
+      "kind": "logs",
+      "tools": {
+        "axe": 2,
+        "pickaxe": 1
+      },
+      "hits": 3,
+      "regrow_minutes": 120,
+      "models": ["nature.log_stack", "nature.log_stackLarge"],
+      "drops": [
+        {
+          "item": "oak_log",
+          "min": 3,
+          "max": 3
+        }
+      ]
     }
   ],
   "best_swing_points": 2

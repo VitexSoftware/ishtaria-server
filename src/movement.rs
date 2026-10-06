@@ -970,7 +970,30 @@ impl WalkingTerrain {
 
     fn fauna_cell(&self, face: usize, column: i32, row: i32) -> Option<WorldObject> {
         let id = format!("{}:fauna:{face}:{column}:{row}", self.environment.seed);
-        self.place(id, face, column, row, FAUNA_GRID, true)
+        let animal = self.place(id, face, column, row, FAUNA_GRID, true)?;
+        // Wild land animals keep away from settlements, including where they stray to.
+        (!animal.model.starts_with("animal.") || !self.near_settlement(animal.position))
+            .then_some(animal)
+    }
+
+    /// Whether a wild animal put here could wander into a settlement's built-up area.
+    fn near_settlement(&self, position: [f64; 3]) -> bool {
+        let key = format!(
+            "{}:{}",
+            self.environment.seed, self.environment.heightmap_sha256
+        );
+        let Ok(farms) = FARMS.read() else {
+            return false;
+        };
+        if farms.0 != key {
+            return false;
+        }
+        let direction = unit(position);
+        farms.1.iter().any(|site| {
+            length(std::array::from_fn(|axis| {
+                (site.direction[axis] - direction[axis]) * RADIUS
+            })) <= site.radius_m + WILD_WANDER_M + 20.0
+        })
     }
 
     /// Water animals: placed below the water surface where the water is deep enough.
@@ -1632,6 +1655,9 @@ pub(super) async fn walk(
             .fetch_one(&mut *transaction)
             .await?;
         intent.run &= stamina > 0;
+        // A jump costs stamina up front and is refused when too little is left.
+        intent.jump &= !position.airborne && f64::from(stamina) >= super::survival::JUMP_STAMINA;
+        let takes_off = intent.jump;
         let seconds: f64 = sqlx::query_scalar("SELECT greatest(0.0, least(0.25, extract(epoch FROM (clock_timestamp() - last_moved_at))))::float8 FROM players WHERE id = $1")
             .bind(player_id).fetch_one(&mut *transaction).await?;
         let (vertical_speed, jump_x, jump_y, jump_z): (f64, f64, f64, f64) = sqlx::query_as(
@@ -1658,6 +1684,9 @@ pub(super) async fn walk(
             .bind(position.airborne).bind(on_object).bind(flight.vertical_speed)
             .bind(flight.horizontal[0]).bind(flight.horizontal[1]).bind(flight.horizontal[2])
             .execute(&mut *transaction).await?;
+        if takes_off {
+            super::survival::jump(&mut transaction, player_id, intent.run).await?;
+        }
         if moving
             && !super::survival::activity(&mut transaction, player_id, seconds, intent.run).await?
         {
