@@ -1,3 +1,9 @@
+ishtaria-server (0.2.1) unstable; urgency=medium
+
+  * Scale land animals to the size of the player avatar (2.09 units per metre).
+
+ -- Vítězslav Dvořák <cybervitexus@gmail.com>  Tue, 06 Oct 2026 21:07:17 +0200
+
 ishtaria-server (0.2.0) unstable; urgency=medium
 
   * Release 0.2.0: server_version in /world, animals, butchering, milking.
