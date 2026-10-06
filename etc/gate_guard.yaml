@@ -1,0 +1,23 @@
+# The guard at the main gate of every walled town: a plain talker built from ordinary dialogue data.
+dialogue:
+  id: gate_guard
+  status: reviewed
+  start: greet
+  nodes:
+    greet:
+      text_key: gate_guard.greet
+      choices:
+        - {text_key: gate_guard.leave}
+strings:
+  en:
+    gate_guard.greet: "Halt. The gate is open by day and watched by night. Keep your hands where I can see them."
+    gate_guard.leave: Move along.
+    gate_guard.name: Gate Guard
+    gate_guard.bio: Watches the main gate of the town.
+    gate.name: North Gate
+  cs:
+    gate_guard.greet: "Stůj. Brána je ve dne otevřená a v noci hlídaná. Drž ruce, kde je uvidím."
+    gate_guard.leave: Pokračuj.
+    gate_guard.name: Hlídač brány
+    gate_guard.bio: Střeží hlavní bránu města.
+    gate.name: Severní brána

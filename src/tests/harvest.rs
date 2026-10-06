@@ -368,7 +368,10 @@ async fn configured_items_exist(pool: PgPool) {
         .fetch_all(&pool)
         .await
         .unwrap();
-    for item in crate::gathering::configured_items() {
+    for item in crate::gathering::configured_items()
+        .into_iter()
+        .chain(crate::creatures::configured_items())
+    {
         assert!(
             known.contains(&item),
             "item {item} is configured but not defined"

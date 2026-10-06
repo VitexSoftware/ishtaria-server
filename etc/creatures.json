@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "reach_m": 5.0,
+  "cooldown_ms": 700,
+  "stamina_cost": 3,
+  "forget_hits_after_minutes": 10,
+  "weapons": {
+    "sword": 3,
+    "cleaver": 3,
+    "knife": 2,
+    "dagger_2": 2,
+    "axe": 1
+  },
+  "animals": [
+    {"model": "animal.pig", "hits": 7, "respawn_minutes": 30, "drops": [{"item": "raw_meat", "min": 3, "max": 5}, {"item": "bone", "min": 1, "max": 1}]},
+    {"model": "animal.sheep", "hits": 6, "respawn_minutes": 30, "drops": [{"item": "raw_meat", "min": 2, "max": 4}, {"item": "bone", "min": 1, "max": 1}]},
+    {"model": "animal.chicken", "hits": 2, "respawn_minutes": 15, "drops": [{"item": "raw_meat", "min": 1, "max": 2}]},
+    {"model": "animal.cow", "hits": 12, "respawn_minutes": 30, "drops": [{"item": "raw_meat", "min": 4, "max": 7}, {"item": "bone", "min": 1, "max": 2}]},
+    {"model": "animal.bull", "hits": 15, "respawn_minutes": 30, "drops": [{"item": "raw_meat", "min": 5, "max": 8}, {"item": "bone", "min": 1, "max": 3}]},
+    {"model": "animal.horse", "hits": 12, "respawn_minutes": 40, "drops": [{"item": "raw_meat", "min": 4, "max": 6}, {"item": "bone", "min": 1, "max": 2}]},
+    {"model": "animal.white_horse", "hits": 12, "respawn_minutes": 40, "drops": [{"item": "raw_meat", "min": 4, "max": 6}, {"item": "bone", "min": 1, "max": 2}]},
+    {"model": "animal.donkey", "hits": 10, "respawn_minutes": 40, "drops": [{"item": "raw_meat", "min": 3, "max": 5}, {"item": "bone", "min": 1, "max": 2}]},
+    {"model": "animal.alpaca", "hits": 8, "respawn_minutes": 30, "drops": [{"item": "raw_meat", "min": 3, "max": 5}, {"item": "bone", "min": 1, "max": 1}]},
+    {"model": "animal.deer", "hits": 6, "respawn_minutes": 20, "drops": [{"item": "raw_meat", "min": 2, "max": 4}, {"item": "bone", "min": 1, "max": 1}]},
+    {"model": "animal.stag", "hits": 8, "respawn_minutes": 20, "drops": [{"item": "raw_meat", "min": 3, "max": 5}, {"item": "bone", "min": 1, "max": 2}]},
+    {"model": "animal.fox", "hits": 3, "respawn_minutes": 20, "drops": [{"item": "raw_meat", "min": 1, "max": 2}]},
+    {"model": "animal.wolf", "hits": 5, "respawn_minutes": 20, "drops": [{"item": "raw_meat", "min": 2, "max": 3}, {"item": "bone", "min": 1, "max": 1}]},
+    {"model": "animal.husky", "hits": 5, "respawn_minutes": 20, "drops": [{"item": "raw_meat", "min": 2, "max": 3}, {"item": "bone", "min": 1, "max": 1}]},
+    {"model": "animal.shiba_inu", "hits": 4, "respawn_minutes": 20, "drops": [{"item": "raw_meat", "min": 1, "max": 2}, {"item": "bone", "min": 1, "max": 1}]}
+  ],
+  "milk": {
+    "model": "animal.cow",
+    "reach_m": 3.5,
+    "water": 30.0,
+    "cooldown_minutes": 10
+  }
+}

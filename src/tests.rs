@@ -1,6 +1,7 @@
 use super::*;
 
 mod building;
+mod creatures;
 mod drinking;
 mod durability;
 mod experience;
@@ -1717,7 +1718,7 @@ async fn persistence_and_conflicting_imports(pool: PgPool) {
         versions,
         [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-            25, 26, 27, 28, 29, 30, 31, 32, 33
+            25, 26, 27, 28, 29, 30, 31, 32, 33, 34
         ]
     );
 }
@@ -1836,9 +1837,19 @@ async fn imported_map_survives_restart_and_http_roundtrip(pool: PgPool) {
     assert_eq!(objects["heightmap_sha256"], decoded.sha256);
     assert_eq!(objects["seed"], "42");
     assert!(objects["objects"].as_array().unwrap().len() <= 512);
+    // Walking animals and the clock change from moment to moment; everything else is stable.
+    let stable = |mut region: serde_json::Value| {
+        region.as_object_mut().unwrap().remove("server_time_ms");
+        region["objects"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|object| object.get("wander").is_none());
+        region
+    };
+    assert!(objects["server_time_ms"].as_i64().unwrap() > 0);
     assert_eq!(
-        objects,
-        response_json(request(&router, object_path).await).await
+        stable(objects.clone()),
+        stable(response_json(request(&router, object_path).await).await)
     );
     for query in [
         "x=0&y=0&z=0",

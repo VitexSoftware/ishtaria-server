@@ -1,4 +1,5 @@
 mod atmosphere;
+mod creatures;
 mod durability;
 mod environment;
 mod experience;
@@ -221,6 +222,7 @@ fn app(state: AppState) -> Router {
         .merge(players::routes())
         .merge(federation::routes())
         .merge(gathering::routes())
+        .merge(creatures::routes())
         .merge(portals::routes())
         .merge(land::routes())
         .merge(hall::routes())

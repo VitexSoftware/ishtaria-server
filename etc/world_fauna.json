@@ -117,6 +117,30 @@
       "collision_radius": 0.0
     },
     {
+      "id": "animal.pig",
+      "biomes": [],
+      "weight": 1,
+      "scale_m": 0.17,
+      "max_slope": 0.35,
+      "collision_radius": 0.0
+    },
+    {
+      "id": "animal.sheep",
+      "biomes": [],
+      "weight": 1,
+      "scale_m": 0.17,
+      "max_slope": 0.35,
+      "collision_radius": 0.0
+    },
+    {
+      "id": "animal.chicken",
+      "biomes": [],
+      "weight": 1,
+      "scale_m": 0.07,
+      "max_slope": 0.35,
+      "collision_radius": 0.0
+    },
+    {
       "id": "animal.alpaca",
       "biomes": [
         6,

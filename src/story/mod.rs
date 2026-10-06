@@ -226,8 +226,16 @@ impl Story {
             let qualified = qualify(&id, &quest.id);
             quest.id = qualified.clone();
             quest.title_key = qualify(&id, &quest.title_key);
+            if let Some(place) = &quest.start_place {
+                foreign_ok(place)?;
+                quest.start_place = Some(qualify(&id, place));
+            }
             for stage in quest.stages.values_mut() {
                 stage.text_key = qualify(&id, &stage.text_key);
+                if let Some(place) = &stage.guide {
+                    foreign_ok(place)?;
+                    stage.guide = Some(qualify(&id, place));
+                }
                 if let Some(reach) = &mut stage.reach {
                     foreign_ok(&reach.place)?;
                     reach.place = qualify(&id, &reach.place);
@@ -270,6 +278,19 @@ impl Story {
                 npc.id,
                 npc.dialogue
             );
+        }
+        for quest in self.quests.values() {
+            let guides = quest
+                .stages
+                .values()
+                .filter_map(|stage| stage.guide.as_ref());
+            for place in quest.start_place.iter().chain(guides) {
+                ensure!(
+                    places.contains(&place.as_str()),
+                    "{}: unknown place {place}",
+                    quest.id
+                );
+            }
         }
         for anchor in &self.anchors {
             if let Some(track) = &anchor.place.music {

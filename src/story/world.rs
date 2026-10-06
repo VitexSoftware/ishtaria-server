@@ -247,10 +247,12 @@ async fn build(
     let built = super::settlements::finish(&mut story, &mut sites, terrain.as_ref(), &seed)?;
     let props = built.props;
     let colliders = built.colliders;
+    let farms = built.farms;
     let npcs = npc_descriptors(&story, &sites, terrain.as_ref());
     let spawn = find_spawn(&story, &sites, &colliders, &npcs, terrain.as_ref(), &seed);
     let areas = area_descriptors(&story, &sites);
     movement::set_statics(format!("{seed}:{heightmap}"), colliders);
+    movement::set_farms(format!("{seed}:{heightmap}"), farms);
     Ok(StoryWorld {
         spawn,
         story,

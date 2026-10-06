@@ -106,6 +106,8 @@ pub struct Place {
     /// New characters of the world appear here (the first such place of the first disk wins).
     #[serde(default)]
     pub spawn: bool,
+    /// A fixed spot of the parent's walled town: `gate` or `alley` (see `scenery::town_spot`).
+    pub at: Option<String>,
     /// Track (id of the disk's music) that plays while the player is within `music_radius_m`.
     pub music: Option<String>,
     /// Distance from the place where its music is heard; defaults to `radius_m`.
@@ -251,6 +253,8 @@ pub struct Stage {
     #[serde(default)]
     pub final_stage: bool,
     pub reach: Option<Reach>,
+    /// Place the player is pointed to while this stage is current (defaults to the reach place).
+    pub guide: Option<String>,
 }
 
 /// Moves the quest on when the player comes within `radius_m` of a place.
@@ -269,6 +273,7 @@ pub struct StageFile {
     #[serde(rename = "final", default)]
     pub final_stage: bool,
     pub reach: Option<Reach>,
+    pub guide: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -277,6 +282,8 @@ pub struct QuestFile {
     pub id: String,
     pub title_key: String,
     pub start_stage: String,
+    /// Place where the quest begins: shown as the next story point until the quest is started.
+    pub start_place: Option<String>,
     pub stages: BTreeMap<String, StageFile>,
 }
 
@@ -285,6 +292,7 @@ pub struct Quest {
     pub id: String,
     pub title_key: String,
     pub start_stage: String,
+    pub start_place: Option<String>,
     pub stages: BTreeMap<String, Stage>,
 }
 
@@ -460,6 +468,7 @@ impl Disk {
                 id: file.id,
                 title_key: file.title_key,
                 start_stage: file.start_stage,
+                start_place: file.start_place,
                 stages: file
                     .stages
                     .into_iter()
@@ -470,6 +479,7 @@ impl Disk {
                                 text_key: stage.text_key,
                                 final_stage: stage.final_stage,
                                 reach: stage.reach,
+                                guide: stage.guide,
                             },
                         )
                     })
@@ -634,6 +644,13 @@ impl Disk {
                     "{id}: unknown settlement size"
                 );
             }
+            if let Some(at) = &place.at {
+                ensure!(
+                    ["gate", "alley"].contains(&at.as_str()) && place.parent.is_some(),
+                    "{id}: place {} is pinned to unknown spot {at} or has no parent town",
+                    place.id
+                );
+            }
             ensure!(
                 matches!(
                     place.kind.as_str(),
@@ -748,8 +765,22 @@ impl Disk {
                 "{id}: quest {} has an unknown start stage",
                 quest.id
             );
+            for place in quest.start_place.iter() {
+                ensure!(
+                    !local(place) || places.contains(place.as_str()),
+                    "{id}: quest {} starts at unknown place {place}",
+                    quest.id
+                );
+            }
             for stage in quest.stages.values() {
                 key_ok(&stage.text_key)?;
+                for place in stage.guide.iter() {
+                    ensure!(
+                        !local(place) || places.contains(place.as_str()),
+                        "{id}: quest {} guides to unknown place {place}",
+                        quest.id
+                    );
+                }
                 if let Some(reach) = &stage.reach {
                     ensure!(
                         quest.stages.contains_key(&reach.goto),

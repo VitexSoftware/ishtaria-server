@@ -264,9 +264,12 @@ pub fn settlement(
         ));
     }
 
+    // The back alley by the gate keeps the houses away.
+    alley(&mut props, size);
     // Houses on the free ground between the roads, their doors towards the plaza.
     let wanted = size.houses();
     let mut centers: Vec<(f64, f64)> = vec![(0.0, 0.0)];
+    centers.extend(town_spot(size, "alley"));
     let mut tries = 0;
     while centers.len() <= wanted && tries < 4000 {
         tries += 1;
@@ -308,7 +311,7 @@ pub fn settlement(
     if size == Size::Town {
         wall(
             &mut props,
-            radius + 12.0,
+            wall_radius(size),
             sea.map(|(direction, _)| direction),
         );
     }
@@ -318,23 +321,77 @@ pub fn settlement(
     props
 }
 
+/// Radius of the corners of a walled town's wall.
+fn wall_radius(size: Size) -> f64 {
+    size.radius_m() + 12.0
+}
+
+/// A fixed spot of a walled town in its local frame, for places that datadisks pin to it:
+/// `gate` is just inside the main gate in the north wall (towards -Z), `alley` the back alley
+/// beside it. Only towns have a wall, so other sizes have no such spots.
+pub fn town_spot(size: Size, name: &str) -> Option<(f64, f64)> {
+    if size != Size::Town {
+        return None;
+    }
+    // The middle of a side of the wall is closer to the centre than its corners.
+    let wall = wall_radius(size) * (TAU / 32.0).cos();
+    match name {
+        "gate" => Some((0.0, -(wall - 5.0))),
+        "alley" => Some((ALLEY_X, -(wall - 9.0))),
+        _ => None,
+    }
+}
+
+/// How far beside the road the back alley lies.
+const ALLEY_X: f64 = -12.0;
+
+/// The back alley behind the gate: a few crates and barrels stacked against the wall.
+fn alley(props: &mut Vec<LocalProp>, size: Size) {
+    let Some((x, z)) = town_spot(size, "alley") else {
+        return;
+    };
+    for (k, model) in [
+        "retro.barrels",
+        "retro.detail-crate",
+        "retro.barrels",
+        "retro.pulley-crate",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let (dx, dz) = (-1.5 + (k % 2) as f64 * 3.0, -1.5 + (k / 2) as f64 * 3.0);
+        props.push(LocalProp::new(
+            model,
+            x + dx,
+            z + dz,
+            k as f64 * 1.1,
+            MODULE_M,
+        ));
+    }
+}
+
 /// A 16-sided wall of castle pieces with a tower at every corner and a gate on each road.
 fn wall(props: &mut Vec<LocalProp>, radius: f64, sea: Option<(f64, f64)>) {
     const SIDES: usize = 16;
+    // The corners lie half a side off the axes, so that the middle of a side meets each road.
     let corner = |k: usize| {
-        let angle = k as f64 * TAU / SIDES as f64;
+        let angle = (k as f64 + 0.5) * TAU / SIDES as f64;
         (radius * angle.cos(), radius * angle.sin())
     };
     for k in 0..SIDES {
         let (ax, az) = corner(k);
         let (bx, bz) = corner((k + 1) % SIDES);
         let length = (bx - ax).hypot(bz - az);
-        let pieces = (length / WALL_M).round().max(1.0) as usize;
-        let along = (bx - ax).atan2(bz - az); // heading of the side
         let middle = (ax + bx) / 2.0;
         let middle_z = (az + bz) / 2.0;
-        // Sides that cross the roads get a gate in the middle; the seaward one stays open.
-        let on_road = middle.abs() < length || middle_z.abs() < length;
+        // Only the sides the four roads cross get a gate, an odd number of pieces keeps it centred.
+        let on_road = middle.abs() < 1.0 || middle_z.abs() < 1.0;
+        let mut pieces = (length / WALL_M).round().max(1.0) as usize;
+        if on_road && pieces % 2 == 0 {
+            pieces += 1;
+        }
+        let along = (bx - ax).atan2(bz - az); // heading of the side
+                                              // The seaward side stays open.
         let towards_sea = sea.is_some_and(|(sx, sz)| (middle * sx + middle_z * sz) > radius * 0.8);
         for p in 0..pieces {
             let t = (p as f64 + 0.5) / pieces as f64;
@@ -914,6 +971,36 @@ mod tests {
         };
         assert_eq!(walls(Size::Village), 0);
         assert!(walls(Size::Town) > 60);
+    }
+
+    #[test]
+    fn a_town_has_a_gate_on_each_road_and_a_back_alley_inside_the_north_one() {
+        let props = settlement("7", "x", Size::Town, None);
+        let gates: Vec<_> = props
+            .iter()
+            .filter(|p| p.model == "castle.wall-doorway")
+            .collect();
+        assert_eq!(gates.len(), 4);
+        for gate in &gates {
+            assert!(gate.x.abs() < 1.0 || gate.z.abs() < 1.0, "on a road");
+        }
+        // The spots are inside the wall, the guard's by the north gate, and no house stands there.
+        let (gx, gz) = town_spot(Size::Town, "gate").unwrap();
+        let north = gates
+            .iter()
+            .find(|p| p.z < -50.0 && p.x.abs() < 1.0)
+            .unwrap();
+        assert!(gx.abs() < 1.0 && (gz - north.z).abs() < 6.0 && gz > north.z);
+        let (ax, az) = town_spot(Size::Town, "alley").unwrap();
+        assert!((az - gz).abs() < 6.0 && ax < -6.0);
+        assert!(props
+            .iter()
+            .any(|p| p.model == "retro.barrels" && (p.x - ax).hypot(p.z - az) < 4.0));
+        assert!(props
+            .iter()
+            .filter(|p| p.model == "town.chimney")
+            .all(|p| (p.x - ax).hypot(p.z - az) > 8.0));
+        assert_eq!(town_spot(Size::Village, "gate"), None);
     }
 
     #[test]

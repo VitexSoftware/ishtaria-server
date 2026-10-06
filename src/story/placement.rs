@@ -236,6 +236,39 @@ pub fn place_anchors(
     Ok(fresh)
 }
 
+/// A place pinned to a spot of its parent's walled town (`at`) stands exactly there.
+fn pinned_site(
+    story: &Story,
+    anchor: &Anchor,
+    ground: &dyn Ground,
+    placed: &HashMap<String, Placed>,
+) -> Result<Option<Placed>> {
+    let (Some(spot), Some(parent)) = (&anchor.place.at, &anchor.place.parent) else {
+        return Ok(None);
+    };
+    let town = story.anchors.iter().find(|a| &a.id == parent);
+    let size = town
+        .and_then(|a| a.place.scenery.as_ref())
+        .filter(|scenery| scenery.preset == "town")
+        .and_then(|scenery| scenery.size.as_deref())
+        .and_then(crate::scenery::Size::parse);
+    let (x, z) = size
+        .and_then(|size| crate::scenery::town_spot(size, spot))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "place {} is pinned to {spot}, which the parent {parent} (a town of size town) does not have",
+                anchor.id
+            )
+        })?;
+    let (direction, _) =
+        crate::scenery::world_from_local(placed[parent].direction, x, z, |_| 0.0, RADIUS);
+    Ok(Some(Placed {
+        id: anchor.id.clone(),
+        direction,
+        height_m: ground.height(direction),
+    }))
+}
+
 fn find_site(
     story: &Story,
     anchor: &Anchor,
@@ -243,6 +276,9 @@ fn find_site(
     seed: &str,
     placed: &HashMap<String, Placed>,
 ) -> Result<Placed> {
+    if let Some(site) = pinned_site(story, anchor, ground, placed)? {
+        return Ok(site);
+    }
     let requires = &anchor.place.requires;
     let allowed: Vec<u8> = requires
         .biome

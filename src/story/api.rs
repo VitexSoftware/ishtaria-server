@@ -2,7 +2,9 @@
 
 use super::{
     engine::{self, Choose, Op, PlayerState, Reject, Shown},
+    placement::Placed,
     world::{self, StoryWorld, TALK_RANGE_M},
+    Story,
 };
 use crate::{players, AppState};
 use axum::{
@@ -16,7 +18,7 @@ use players::Error;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 type Tx<'a> = Transaction<'a, Postgres>;
 
@@ -30,6 +32,7 @@ pub fn routes() -> Router<AppState> {
         .route("/story/dialogue/choose", post(choose))
         .route("/story/dialogue", delete(leave))
         .route("/story/quests", get(quests))
+        .route("/story/markers", get(markers))
         .layer(DefaultBodyLimit::max(1024))
         .route("/story/strings", get(strings))
         .route("/story/media/{disk}/{*path}", get(media))
@@ -450,6 +453,94 @@ async fn quests(
             })
             .collect(),
     ))
+}
+
+/// Where the player is pointed to: a place of an active quest or the start of one not yet begun.
+#[derive(Serialize)]
+pub(super) struct Marker {
+    /// Qualified place id.
+    pub(super) id: String,
+    pub(super) quest: String,
+    pub(super) name_key: String,
+    pub(super) kind: String,
+    /// World metres, like the positions of NPCs.
+    pub(super) position: [f64; 3],
+    /// The place where a quest not yet begun waits (instead of one of an active quest).
+    pub(super) next: bool,
+}
+
+/// The item that lets the player see the markers (given by Faust).
+const GUIDE_ITEM: &str = "aetherglass";
+
+/// Markers of the player's active quests. Empty until the player holds the aetherglass,
+/// and it never names a place that no quest of the player points to.
+async fn markers(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Marker>>, Error> {
+    let player_id = players::player_id(&state, &players::token_hash(&headers)?).await?;
+    let story = story_of(&state).await?;
+    let holds: Option<(i64,)> = sqlx::query_as(
+        "SELECT quantity FROM player_inventory WHERE player_id = $1 AND item_id = $2 AND quantity > 0",
+    )
+    .bind(player_id)
+    .bind(GUIDE_ITEM)
+    .fetch_optional(&state.pool)
+    .await?;
+    if holds.is_none() {
+        return Ok(Json(Vec::new()));
+    }
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT quest_id, stage FROM player_quests WHERE player_id = $1")
+            .bind(player_id)
+            .fetch_all(&state.pool)
+            .await?;
+    Ok(Json(markers_of(&story.story, &story.sites, &rows)))
+}
+
+/// The places the quests point to, given the player's `(quest, stage)` rows.
+pub(super) fn markers_of(
+    story: &Story,
+    sites: &HashMap<String, Placed>,
+    rows: &[(String, String)],
+) -> Vec<Marker> {
+    let mut found = Vec::new();
+    for (id, definition) in &story.quests {
+        let current = rows.iter().find(|(quest, _)| quest == id);
+        let (place, next) = match current {
+            Some((_, stage)) => {
+                let Some(stage) = definition.stages.get(stage) else {
+                    continue;
+                };
+                if stage.final_stage {
+                    continue;
+                }
+                let place = stage
+                    .guide
+                    .as_ref()
+                    .or(stage.reach.as_ref().map(|reach| &reach.place));
+                (place, false)
+            }
+            None => (definition.start_place.as_ref(), true),
+        };
+        let Some(place) = place else { continue };
+        let (Some(site), Some(anchor)) = (
+            sites.get(place),
+            story.anchors.iter().find(|anchor| &anchor.id == place),
+        ) else {
+            continue;
+        };
+        found.push(Marker {
+            id: place.clone(),
+            quest: id.clone(),
+            name_key: anchor.place.name_key.clone(),
+            kind: anchor.place.kind.clone(),
+            position: world::site_position(site),
+            next,
+        });
+    }
+    found.truncate(64);
+    found
 }
 
 fn etag(value: &str) -> String {

@@ -474,6 +474,17 @@ fn fountain_within(
 
 /// Drinks from a fountain of a settlement or from fresh water (lake or river) within reach of
 /// the character. Sea water is salty.
+/// Adds water to a character's reserve (at most 100), for example from drinking milk.
+pub(super) async fn add_water(
+    transaction: &mut Transaction<'_, Postgres>,
+    id: i64,
+    amount: f64,
+) -> Result<(), Error> {
+    let mut value = reserves(transaction, id).await?;
+    value.water = (value.water + amount).min(100.0);
+    save_reserves(transaction, id, &value).await
+}
+
 async fn drink(
     State(state): State<AppState>,
     headers: HeaderMap,

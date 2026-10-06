@@ -390,7 +390,7 @@ fn placement_is_deterministic_and_honours_distances() {
     let city = site("endland:udrury");
     let tavern = site("endland:blackhorn_tavern");
     let graveyard = site("endland:old_graveyard");
-    assert!(distance_m(city.direction, tavern.direction) <= 400.0 * 0.8 * 1.0001);
+    assert!(distance_m(city.direction, tavern.direction) <= 130.0 * 0.8 * 1.0001);
     let away = distance_m(city.direction, graveyard.direction);
     assert!(
         (1000.0..=3000.0).contains(&away),
@@ -468,18 +468,20 @@ fn the_endland_intro_asks_the_name_and_hands_out_the_aetherglass_once() {
 fn every_world_grows_towns_with_graveyards_and_harbours_with_shipwrights() {
     use super::{placement::place_anchors, settlements};
     let disk = settlements::world_disk("42", 6);
+    let gates = disk.places.iter().filter(|p| p.at.is_some()).count();
     assert_eq!(
         disk.places.len(),
-        13,
-        "a town and a graveyard each, and a fortress for every fourth town"
+        13 + gates,
+        "a town and a graveyard each, a fortress for every fourth town and a gate for each walled one"
     );
+    assert_eq!(disk.npcs.len(), gates, "a guard at every gate");
     let mut story = Story::compose(vec![disk]).unwrap();
     let mut sites: std::collections::HashMap<_, _> = place_anchors(&story, &Flat, "42", &[])
         .unwrap()
         .into_iter()
         .map(|site| (site.id.clone(), site))
         .collect();
-    assert_eq!(sites.len(), 13);
+    assert_eq!(sites.len(), 13 + gates);
     let built = settlements::finish(&mut story, &mut sites, &Flat, "42").unwrap();
     let props = &built.props;
     assert!(
@@ -586,4 +588,127 @@ fn the_spawn_point_of_a_disk_is_a_free_spot_inside_its_place() {
         Some(spawn),
         find_spawn(&story, &sites, &built.colliders, &npcs, &Flat, "42")
     );
+}
+
+#[test]
+fn markers_point_at_the_places_of_active_quests_only() {
+    use super::{api::markers_of, placement::place_anchors};
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ishtaria-datadisk-endland");
+    if !path.join("datadisk.yaml").is_file() {
+        return;
+    }
+    let story = Story::load(&[path], false).unwrap();
+    let sites: std::collections::HashMap<_, _> = place_anchors(&story, &Flat, "42", &[])
+        .unwrap()
+        .into_iter()
+        .map(|site| (site.id.clone(), site))
+        .collect();
+    let row = |quest: &str, stage: &str| (format!("endland:{quest}"), stage.to_owned());
+
+    // Nothing started: the job waits at the north gate, where Faust stands.
+    let found = markers_of(&story, &sites, &[row("intro", "got_aether")]);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].id, "endland:udrury_gate");
+    assert!(found[0].next);
+
+    // The rumour sends the player to Fawn in the back alley, the key back to Faust at the gate.
+    let found = markers_of(&story, &sites, &[row("graveyard_job", "heard_rumour")]);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].id, "endland:udrury_alley");
+    assert!(!found[0].next);
+    let found = markers_of(&story, &sites, &[row("graveyard_job", "have_key")]);
+    assert_eq!(found[0].id, "endland:udrury_gate");
+
+    // A finished quest points nowhere.
+    assert!(markers_of(&story, &sites, &[row("graveyard_job", "paid_off")]).is_empty());
+}
+
+#[test]
+fn the_endland_characters_stand_in_different_parts_of_the_town() {
+    use super::{
+        placement::{distance_m, place_anchors},
+        world::npc_descriptors,
+    };
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ishtaria-datadisk-endland");
+    if !path.join("datadisk.yaml").is_file() {
+        return;
+    }
+    let story = Story::load(&[path], false).unwrap();
+    let sites: std::collections::HashMap<_, _> = place_anchors(&story, &Flat, "42", &[])
+        .unwrap()
+        .into_iter()
+        .map(|site| (site.id.clone(), site))
+        .collect();
+    let npcs = npc_descriptors(&story, &sites, &Flat);
+    let town: Vec<_> = npcs
+        .iter()
+        .filter(|npc| npc.id != "endland:faust_graveyard")
+        .collect();
+    assert_eq!(town.len(), 5);
+    // Faust, Fawn and the guard wait at the north gate and in the back alley behind it; the
+    // others stand elsewhere in the town.
+    let at_gate = |id: &str| ["endland:faust", "endland:fawn", "endland:gate_guard"].contains(&id);
+    let metres = |first: &[f64; 3], second: &[f64; 3]| {
+        ((0..3).map(|a| (first[a] - second[a]).powi(2)).sum::<f64>()).sqrt()
+    };
+    for (index, first) in town.iter().enumerate() {
+        for second in &town[index + 1..] {
+            if at_gate(&first.id) && at_gate(&second.id) {
+                assert!(metres(&first.position, &second.position) < 30.0);
+                continue;
+            }
+            let apart = metres(&first.position, &second.position);
+            assert!(
+                apart > 10.0,
+                "{} and {} stand {apart} m apart",
+                first.id,
+                second.id
+            );
+        }
+    }
+    let city = &sites["endland:udrury"];
+    for place in [
+        "udrury_market",
+        "udrury_alley",
+        "udrury_gate",
+        "blackhorn_tavern",
+    ] {
+        assert!(
+            distance_m(city.direction, sites[&format!("endland:{place}")].direction)
+                <= 130.0 * 0.8 * 1.0001
+        );
+    }
+}
+
+#[test]
+fn every_walled_town_has_a_guard_standing_at_its_gate() {
+    use super::{placement::place_anchors, settlements, world::npc_descriptors};
+    let disk = settlements::world_disk("42", 40);
+    let story = Story::compose(vec![disk]).unwrap();
+    let sites: std::collections::HashMap<_, _> = place_anchors(&story, &Flat, "42", &[])
+        .unwrap()
+        .into_iter()
+        .map(|site| (site.id.clone(), site))
+        .collect();
+    let guards: Vec<_> = story
+        .npcs
+        .keys()
+        .filter(|id| id.contains("guard_"))
+        .collect();
+    assert!(!guards.is_empty(), "some of forty settlements are towns");
+    let npcs = npc_descriptors(&story, &sites, &Flat);
+    for id in guards {
+        let town = id.replace("guard_", "town_");
+        let guard = npcs.iter().find(|npc| &npc.id == id).expect("a guard");
+        let length = guard.position.iter().map(|v| v * v).sum::<f64>().sqrt();
+        let apart = super::placement::distance_m(
+            guard.position.map(|v| v / length),
+            sites[&town].direction,
+        );
+        // Inside the wall (apothem 95 m), near the gate in the north (-Z).
+        assert!(
+            apart > 70.0 && apart < 100.0,
+            "{id} stands {apart} m from the centre"
+        );
+    }
 }

@@ -429,6 +429,13 @@ anyone has taken something from the grave (`looted`).
 sword are inventory items every new character starts with; `POST /players/me/equip` (`{"item_id": …}`) puts a tool or weapon in hand and `DELETE /players/me/equip` takes it out (`equipment.hand` in the profile, migration `0021_equipment.sql`). Only the tool in hand works: the axe fells trees, the pickaxe mines stone and also fells trees, but needs twice as many swings. A log fills ten slots and is chopped into wood;
 harvested objects are stored as changes (`world_object_state`) and grow back; a felled tree leaves a stump.
 
+Land animals walk (their route is a pure function of id and time, sent as `wander` waypoints with `server_time_ms` in
+`GET /world/objects`) and graze in pastures beside generated settlements (`<seed>:farm:<n>:<place>`).
+`POST /players/me/butcher` (`{"object_id": …}`) swings the weapon in hand at an animal in reach and yields raw meat
+after several swings (`etc/creatures.json`; the animal returns later, stored in `world_object_state`);
+`POST /players/me/milk` lets a character drink from a cow (30 water, ten minutes per cow, `creature_milked`,
+migration `0034_creatures.sql`).
+
 ## Story datadisks
 
 A datadisk (directory under `/usr/share/ishtaria/datadisks/<id>/`, override with `ISHTARIA_DATADISK_DIR`) adds

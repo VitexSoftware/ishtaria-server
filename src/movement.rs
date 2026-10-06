@@ -37,6 +37,32 @@ const FAUNA_PRESENCE: f64 = 0.35;
 const MIN_WATER_DEPTH_M: f64 = 3.0;
 /// Animals are sent to clients only within this distance of the requested point.
 const FAUNA_RADIUS_M: f64 = 280.0;
+/// Land animals walk between waypoints that depend only on their id and the time: a slot lasts
+/// 30 seconds, the first 21 of which are spent walking to the next waypoint.
+const WANDER_SLOT_MS: i64 = 30_000;
+const WANDER_MOVE_MS: i64 = 21_000;
+const WANDER_PARTS: i64 = 3;
+/// Slots of the route sent to clients; they ask again before it runs out.
+const WANDER_SLOTS: i64 = 3;
+/// How far a free animal strays from where the seed put it, and a farm animal from its pasture.
+const WILD_WANDER_M: f64 = 40.0;
+const FARM_WANDER_M: f64 = 14.0;
+/// Animals sent around each settlement and the room reserved for them in a reply.
+const FARM_ANIMALS_MAX: usize = 40;
+const FARM_RANGE_M: f64 = 400.0;
+/// Models of the animals of a pasture, with their relative frequency.
+const FARM_SPECIES: [(&str, f64); 10] = [
+    ("animal.chicken", 4.0),
+    ("animal.sheep", 4.0),
+    ("animal.pig", 3.0),
+    ("animal.cow", 5.0),
+    ("animal.bull", 1.0),
+    ("animal.horse", 2.0),
+    ("animal.white_horse", 1.0),
+    ("animal.donkey", 2.0),
+    ("animal.alpaca", 1.0),
+    ("animal.shiba_inu", 1.0),
+];
 const PLAYER_RADIUS: f64 = 0.35;
 const JUMP_SPEED: f64 = 6.5;
 const RUN_JUMP_SPEED: f64 = 8.5;
@@ -55,6 +81,24 @@ static TERRAIN: Mutex<Option<(String, Arc<WalkingTerrain>)>> = Mutex::const_new(
 /// the given key `<seed>:<heightmap hash>`.
 static STATICS: std::sync::RwLock<(String, Vec<WorldObject>)> =
     std::sync::RwLock::new((String::new(), Vec::new()));
+
+/// A settlement with a pasture beside it, for the key `<seed>:<heightmap hash>`.
+#[derive(Clone, Debug)]
+pub(super) struct FarmSite {
+    pub id: String,
+    pub direction: [f64; 3],
+    /// Radius of the built-up area in metres; the pasture lies beyond it.
+    pub radius_m: f64,
+}
+
+static FARMS: std::sync::RwLock<(String, Vec<FarmSite>)> =
+    std::sync::RwLock::new((String::new(), Vec::new()));
+
+pub(super) fn set_farms(key: String, sites: Vec<FarmSite>) {
+    if let Ok(mut farms) = FARMS.write() {
+        *farms = (key, sites);
+    }
+}
 
 pub(super) fn set_statics(key: String, obstacles: Vec<WorldObject>) {
     if let Ok(mut statics) = STATICS.write() {
@@ -345,6 +389,49 @@ fn unix_now() -> i64 {
         .map_or(0, |elapsed| elapsed.as_secs() as i64)
 }
 
+/// How many animals graze beside a settlement of this size.
+fn farm_herd(radius_m: f64) -> usize {
+    if radius_m < 40.0 {
+        3
+    } else if radius_m < 60.0 {
+        6
+    } else {
+        10
+    }
+}
+
+pub(super) fn unix_now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis() as i64)
+}
+
+/// Where a walking animal stands at `time_ms`, from the waypoints sent to clients.
+pub(super) fn route_position(route: &[[f64; 4]], time_ms: i64) -> [f64; 3] {
+    let time = time_ms as f64;
+    let point = |entry: &[f64; 4]| [entry[1], entry[2], entry[3]];
+    let (Some(first), Some(last)) = (route.first(), route.last()) else {
+        return [0.0; 3];
+    };
+    if time <= first[0] {
+        return point(first);
+    }
+    for pair in route.windows(2) {
+        if time <= pair[1][0] {
+            let span = pair[1][0] - pair[0][0];
+            let fraction = if span > 0.0 {
+                (time - pair[0][0]) / span
+            } else {
+                1.0
+            };
+            return std::array::from_fn(|axis| {
+                pair[0][axis + 1] + (pair[1][axis + 1] - pair[0][axis + 1]) * fraction
+            });
+        }
+    }
+    point(last)
+}
+
 #[derive(Deserialize)]
 struct ObjectCatalog {
     version: u32,
@@ -402,6 +489,10 @@ struct ObjectDescriptor {
     /// `tree` or `rock` when the object can be harvested, with the tool it needs.
     #[serde(skip_serializing_if = "Option::is_none")]
     harvest: Option<super::gathering::HarvestInfo>,
+    /// Waypoints `[unix milliseconds, x, y, z]` of a walking animal; its `position` is where it
+    /// stands at `server_time_ms`, and it moves in straight lines between the waypoints.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wander: Option<Vec<[f64; 4]>>,
 }
 
 #[derive(Serialize)]
@@ -409,6 +500,8 @@ pub(super) struct ObjectRegion {
     version: u32,
     heightmap_sha256: String,
     seed: String,
+    /// The server's clock when the region was computed, in unix milliseconds.
+    server_time_ms: i64,
     objects: Vec<ObjectDescriptor>,
     /// Characters of the story datadisks standing nearby (passable for now).
     npcs: Vec<super::story::world::NpcDescriptor>,
@@ -1051,9 +1144,223 @@ impl WalkingTerrain {
             length(std::array::from_fn(|axis| {
                 animal.position[axis] - point[axis]
             })) <= FAUNA_RADIUS_M
+                && !self.is_removed(&animal.id)
         });
         animals.sort_by(|first, second| first.id.cmp(&second.id));
         animals
+    }
+
+    /// The biome of the map cell in this direction.
+    fn biome_at(&self, direction: [f64; 3]) -> u8 {
+        let (face, horizontal, vertical) = coordinates(direction);
+        let size = self.environment.face_size;
+        self.environment.biomes[face * size * size
+            + ((vertical * size as f64) as usize).min(size - 1) * size
+            + ((horizontal * size as f64) as usize).min(size - 1)]
+    }
+
+    /// The animals of the pastures beside the settlements near a point, as the seed puts them.
+    pub(super) fn farm_animals(&self, point: [f64; 3]) -> Vec<WorldObject> {
+        let key = format!(
+            "{}:{}",
+            self.environment.seed, self.environment.heightmap_sha256
+        );
+        let Ok(farms) = FARMS.read() else {
+            return Vec::new();
+        };
+        if farms.0 != key {
+            return Vec::new();
+        }
+        let direction = unit(point);
+        let mut animals = Vec::new();
+        for site in &farms.1 {
+            let near = length(std::array::from_fn(|axis| {
+                (site.direction[axis] - direction[axis]) * RADIUS
+            })) <= FARM_RANGE_M + site.radius_m * 2.0;
+            if near {
+                animals.extend(
+                    (0..farm_herd(site.radius_m))
+                        .filter_map(|number| self.farm_animal(site, number))
+                        .filter(|animal| !self.is_removed(&animal.id)),
+                );
+            }
+        }
+        animals.sort_by(|first, second| first.id.cmp(&second.id));
+        animals
+    }
+
+    /// One animal of a settlement's pasture: a herd that grazes together, beyond the buildings.
+    fn farm_animal(&self, site: &FarmSite, number: usize) -> Option<WorldObject> {
+        let id = format!("{}:farm:{number}:{}", self.environment.seed, site.id);
+        let word = |hash: &[u8], index: usize| {
+            f64::from(u32::from_le_bytes(
+                hash[index * 4..index * 4 + 4].try_into().unwrap(),
+            )) / 4_294_967_296.0
+        };
+        // The pasture of the whole settlement and the spot of this animal in it.
+        let place = Sha256::digest(format!("{}:pasture:{}", self.environment.seed, site.id));
+        let hash = Sha256::digest(id.as_bytes());
+        let heading = word(&place, 0) * std::f64::consts::TAU;
+        let distance = site.radius_m + 30.0;
+        let spread = word(&hash, 1).sqrt() * 12.0;
+        let angle = word(&hash, 2) * std::f64::consts::TAU;
+        let x = heading.cos() * distance + angle.cos() * spread;
+        let z = heading.sin() * distance + angle.sin() * spread;
+        let (direction, _) =
+            crate::scenery::world_from_local(site.direction, x, z, |_| 0.0, RADIUS);
+        let height = self.surface(direction)?;
+        let mut choice =
+            word(&hash, 0) * FARM_SPECIES.iter().map(|(_, weight)| weight).sum::<f64>();
+        let model = FARM_SPECIES
+            .iter()
+            .find(|(_, weight)| {
+                choice -= weight;
+                choice <= 0.0
+            })
+            .map_or(FARM_SPECIES[0].0, |(model, _)| model);
+        let kind = self.catalog.iter().find(|kind| kind.id == model)?;
+        let scale_m = kind.scale_m * (0.8 + word(&hash, 3) * 0.4);
+        Some(WorldObject {
+            id,
+            model: model.to_owned(),
+            position: direction.map(|value| value * (RADIUS + height)),
+            scale_m,
+            yaw: word(&hash, 4) * std::f64::consts::TAU,
+            collision_radius_m: 0.0,
+            biome: self.biome_at(direction),
+        })
+    }
+
+    /// Where an animal heads to at the start of a slot: a spot near where it was put, on land.
+    fn wander_waypoint(&self, id: &str, anchor: [f64; 3], slot: i64, radius: f64) -> [f64; 3] {
+        let hash = Sha256::digest(format!("{id}:wander:{slot}").as_bytes());
+        let word = |index: usize| {
+            f64::from(u32::from_le_bytes(
+                hash[index * 4..index * 4 + 4].try_into().unwrap(),
+            )) / 4_294_967_296.0
+        };
+        let reference = if anchor[1].abs() < 0.9 {
+            [0.0, 1.0, 0.0]
+        } else {
+            [1.0, 0.0, 0.0]
+        };
+        let tangent = unit(cross(anchor, reference));
+        let second = cross(anchor, tangent);
+        let angle = word(0) * std::f64::consts::TAU;
+        let distance = word(1).sqrt() * radius;
+        let direction = unit(std::array::from_fn(|axis| {
+            anchor[axis] * RADIUS
+                + (tangent[axis] * angle.cos() + second[axis] * angle.sin()) * distance
+        }));
+        if self.surface(direction).is_some() {
+            direction
+        } else {
+            anchor
+        }
+    }
+
+    /// Waypoints of a land animal from the start of the current slot onwards.
+    pub(super) fn animal_route(&self, animal: &WorldObject, now_ms: i64) -> Vec<[f64; 4]> {
+        let radius = if animal.id.contains(":farm:") {
+            FARM_WANDER_M
+        } else {
+            WILD_WANDER_M
+        };
+        let anchor = unit(animal.position);
+        let first = now_ms.div_euclid(WANDER_SLOT_MS);
+        let entry = |time: i64, direction: [f64; 3]| {
+            let metres = RADIUS + self.height(direction).max(0.0);
+            let round = |value: f64| (value * 100.0).round() / 100.0;
+            let position = direction.map(|value| round(value * metres));
+            [time as f64, position[0], position[1], position[2]]
+        };
+        let mut route = Vec::new();
+        for slot in first..first + WANDER_SLOTS {
+            let from = self.wander_waypoint(&animal.id, anchor, slot, radius);
+            let to = self.wander_waypoint(&animal.id, anchor, slot + 1, radius);
+            for part in 0..=WANDER_PARTS {
+                let fraction = part as f64 / WANDER_PARTS as f64;
+                let direction = unit(std::array::from_fn(|axis| {
+                    from[axis] + (to[axis] - from[axis]) * fraction
+                }));
+                route.push(entry(
+                    slot * WANDER_SLOT_MS + (WANDER_MOVE_MS as f64 * fraction) as i64,
+                    direction,
+                ));
+            }
+        }
+        let end = first + WANDER_SLOTS;
+        route.push(entry(
+            end * WANDER_SLOT_MS,
+            self.wander_waypoint(&animal.id, anchor, end, radius),
+        ));
+        route
+    }
+
+    /// Land animals near a point with where they are at `now_ms` and where they walk next;
+    /// fish are only drawn and keep their place.
+    pub(super) fn moving_animals(
+        &self,
+        point: [f64; 3],
+        now_ms: i64,
+    ) -> Vec<(WorldObject, Option<Vec<[f64; 4]>>)> {
+        let mut wild = self.fauna(point);
+        wild.truncate(64);
+        let mut farm = self.farm_animals(point);
+        farm.truncate(FARM_ANIMALS_MAX);
+        wild.into_iter()
+            .chain(farm)
+            .map(|mut animal| {
+                if !animal.model.starts_with("animal.") {
+                    return (animal, None);
+                }
+                let route = self.animal_route(&animal, now_ms);
+                animal.position = route_position(&route, now_ms);
+                (animal, Some(route))
+            })
+            .collect()
+    }
+
+    /// A land animal by its id (`<seed>:fauna:…` or `<seed>:farm:…`) standing where it is at
+    /// `now_ms`, unless it was butchered and has not returned yet.
+    pub(super) fn animal_by_id(&self, id: &str, now_ms: i64) -> Option<WorldObject> {
+        if self.is_removed(id) {
+            return None;
+        }
+        let seed = &self.environment.seed;
+        let mut animal = if let Some(rest) = id.strip_prefix(&format!("{seed}:fauna:")) {
+            let mut parts = rest.split(':');
+            let face: usize = parts.next()?.parse().ok()?;
+            let column: i32 = parts.next()?.parse().ok()?;
+            let row: i32 = parts.next()?.parse().ok()?;
+            if parts.next().is_some()
+                || face > 5
+                || !(0..FAUNA_GRID).contains(&column)
+                || !(0..FAUNA_GRID).contains(&row)
+            {
+                return None;
+            }
+            self.fauna_cell(face, column, row)?
+        } else if let Some(rest) = id.strip_prefix(&format!("{seed}:farm:")) {
+            let (number, site) = rest.split_once(':')?;
+            let number: usize = number.parse().ok()?;
+            let key = format!("{seed}:{}", self.environment.heightmap_sha256);
+            let farms = FARMS.read().ok()?;
+            let site = (farms.0 == key)
+                .then(|| farms.1.iter().find(|candidate| candidate.id == site))??;
+            if number >= farm_herd(site.radius_m) {
+                return None;
+            }
+            self.farm_animal(site, number)?
+        } else {
+            return None;
+        };
+        if animal.id != id || !animal.model.starts_with("animal.") {
+            return None;
+        }
+        let route = self.animal_route(&animal, now_ms);
+        animal.position = route_position(&route, now_ms);
+        Some(animal)
     }
 
     /// What blocks a step: harvestable scenery plus the walls and fences of places.
@@ -1238,13 +1545,13 @@ pub(super) async fn world_objects(
     }
     let terrain = terrain(&state).await?;
     let worker = terrain.clone();
+    let now_ms = unix_now_ms();
     let objects = tokio::task::spawn_blocking(move || {
         let mut objects = worker.objects(point, 16);
-        objects.truncate(512 - 64);
-        let mut animals = worker.fauna(point);
-        animals.truncate(64);
-        objects.extend(animals);
-        objects
+        objects.truncate(512 - 64 - FARM_ANIMALS_MAX);
+        let objects: Vec<_> = objects.into_iter().map(|object| (object, None)).collect();
+        let animals = worker.moving_animals(point, now_ms);
+        objects.into_iter().chain(animals).collect::<Vec<_>>()
     })
     .await
     .map_err(|_| {
@@ -1258,11 +1565,13 @@ pub(super) async fn world_objects(
         version: 1,
         heightmap_sha256: terrain.environment.heightmap_sha256.clone(),
         seed: terrain.environment.seed.clone(),
+        server_time_ms: now_ms,
         objects: objects
             .into_iter()
-            .map(|object| ObjectDescriptor {
+            .map(|(object, wander)| ObjectDescriptor {
                 harvest: super::gathering::harvest_info(&object.model),
                 object,
+                wander,
             })
             .collect(),
     }))
@@ -2091,6 +2400,130 @@ mod tests {
             .contains(&model.as_str())),
             "{kinds:?}"
         );
+    }
+
+    fn some_animals(terrain: &WalkingTerrain) -> Vec<WorldObject> {
+        let mut found = Vec::new();
+        for step in 0..40 {
+            let angle = f64::from(step) * 0.0003;
+            let place = unit([angle.cos(), angle.sin(), 0.0]);
+            found
+                .extend(terrain.fauna(place.map(|value| value * (RADIUS + terrain.height(place)))));
+        }
+        found
+    }
+
+    #[test]
+    fn animals_walk_along_routes_that_depend_only_on_id_and_time() {
+        let terrain = terrain_with(144, 4, catalog_with_fauna());
+        let animals = some_animals(&terrain);
+        assert!(!animals.is_empty());
+        let now = 1_700_000_000_000;
+        for animal in &animals {
+            let route = terrain.animal_route(animal, now);
+            assert_eq!(route, terrain.animal_route(animal, now), "deterministic");
+            // The next call, half a minute later, agrees where the routes overlap.
+            let later = terrain.animal_route(animal, now + WANDER_SLOT_MS);
+            let end = route.last().unwrap()[0] as i64;
+            for time in (now + WANDER_SLOT_MS..end).step_by(1500) {
+                let first = route_position(&route, time);
+                let second = route_position(&later, time);
+                assert!(distance(first, second) < 0.05, "{} at {time}", animal.id);
+            }
+            // It never jumps and strays only a little from where the seed put it.
+            let mut previous = route_position(&route, now);
+            for time in (now..now + WANDER_SLOTS * WANDER_SLOT_MS).step_by(500) {
+                let position = route_position(&route, time);
+                assert!(
+                    distance(previous, position) < 3.0,
+                    "{} at {time}",
+                    animal.id
+                );
+                assert!(
+                    distance(position, animal.position) < WILD_WANDER_M + 12.0,
+                    "{} strays",
+                    animal.id
+                );
+                previous = position;
+            }
+        }
+        let moving = animals.iter().any(|animal| {
+            let route = terrain.animal_route(animal, now);
+            distance(
+                route_position(&route, now),
+                route_position(&route, now + 15_000),
+            ) > 1.0
+        });
+        assert!(moving, "some animal walks");
+    }
+
+    fn distance(first: [f64; 3], second: [f64; 3]) -> f64 {
+        length(std::array::from_fn(|axis| first[axis] - second[axis]))
+    }
+
+    #[test]
+    fn animals_are_found_by_id_where_they_stand_until_butchered() {
+        let terrain = terrain_with(144, 4, catalog_with_fauna());
+        let animals = some_animals(&terrain);
+        let animal = animals
+            .iter()
+            .find(|animal| animal.model.starts_with("animal."))
+            .unwrap();
+        let now = 1_700_000_000_000;
+        let found = terrain.animal_by_id(&animal.id, now).unwrap();
+        assert_eq!(found.model, animal.model);
+        let route = terrain.animal_route(animal, now);
+        assert_eq!(found.position, route_position(&route, now));
+        for bad in [
+            "42:fauna:0:1",
+            "42:fauna:9:1:1",
+            "other:fauna:0:1:1",
+            "42:farm:0:nowhere",
+            "42:0:1:1",
+            "",
+        ] {
+            assert!(terrain.animal_by_id(bad, now).is_none(), "{bad}");
+        }
+        terrain.mark_removed(&animal.id, unix_now() + 60, None);
+        assert!(terrain.animal_by_id(&animal.id, now).is_none());
+        assert!(!terrain
+            .fauna(animal.position)
+            .iter()
+            .any(|other| other.id == animal.id));
+    }
+
+    #[test]
+    fn farm_animals_graze_beside_a_settlement_without_changing_other_objects() {
+        let terrain = terrain_with(144, 4, catalog_with_fauna());
+        let site = FarmSite {
+            id: "world:town_00".into(),
+            direction: unit([1.0, 0.1, 0.1]),
+            radius_m: 55.0,
+        };
+        let centre = site
+            .direction
+            .map(|value| value * (RADIUS + terrain.height(site.direction)));
+        let before = terrain.objects(centre, 4);
+        let key = format!("42:{}", terrain.environment.heightmap_sha256);
+        set_farms(key, vec![site.clone()]);
+        let animals = terrain.farm_animals(centre);
+        assert_eq!(animals.len(), farm_herd(55.0));
+        assert_eq!(animals, terrain.farm_animals(centre));
+        for animal in &animals {
+            assert!(animal.id.starts_with("42:farm:"), "{}", animal.id);
+            assert!(FARM_SPECIES.iter().any(|(model, _)| *model == animal.model));
+            let away = distance(animal.position, centre);
+            assert!(
+                (site.radius_m + 10.0..site.radius_m + 60.0).contains(&away),
+                "{} is {away} m away",
+                animal.id
+            );
+            let found = terrain.animal_by_id(&animal.id, 1_700_000_000_000).unwrap();
+            assert_eq!(found.model, animal.model);
+        }
+        assert_eq!(before, terrain.objects(centre, 4));
+        assert!(terrain.farm_animals([-RADIUS, 0.0, 0.0]).is_empty());
+        set_farms(String::new(), Vec::new());
     }
 
     #[test]

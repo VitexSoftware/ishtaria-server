@@ -21,6 +21,7 @@ use std::collections::{BTreeMap, HashMap};
 const DEFAULT_COUNT: usize = 36;
 const SPACING_M: f64 = 120_000.0;
 const SHIPWRIGHT: &str = include_str!("../../etc/shipwright.yaml");
+const GATE_GUARD: &str = include_str!("../../etc/gate_guard.yaml");
 
 /// How many settlements a world grows.
 pub fn count() -> usize {
@@ -134,6 +135,7 @@ pub fn world_disk(seed: &str, count: usize) -> Disk {
             radius_m: Some(size.radius_m() + 20.0),
             spacing_m: Some(SPACING_M),
             spawn: false,
+            at: None,
             music: None,
             music_radius_m: None,
             scenery: Some(Scenery {
@@ -164,6 +166,7 @@ pub fn world_disk(seed: &str, count: usize) -> Disk {
             radius_m: Some(24.0),
             spacing_m: None,
             spawn: false,
+            at: None,
             music: None,
             music_radius_m: None,
             scenery: Some(Scenery {
@@ -212,6 +215,7 @@ pub fn world_disk(seed: &str, count: usize) -> Disk {
             radius_m: Some(scenery::FORTRESS_RADIUS_M + 14.0),
             spacing_m: None,
             spawn: false,
+            at: None,
             music: None,
             music_radius_m: None,
             scenery: Some(Scenery {
@@ -247,6 +251,52 @@ pub fn world_disk(seed: &str, count: usize) -> Disk {
             .unwrap()
             .insert(format!("{fort}.name"), format!("Pevnost {name}"));
     }
+    // Every walled town has a guard at its gate. Like the fortresses, they come last, so that the
+    // places that were there before keep their order.
+    let mut guarded = false;
+    for index in 0..count {
+        if size_of(seed, index) != Size::Town {
+            continue;
+        }
+        guarded = true;
+        let gate = format!("town_{index:02}_gate");
+        disk.places.push(Place {
+            id: gate.clone(),
+            kind: "landmark".to_owned(),
+            name_key: "gate.name".to_owned(),
+            parent: Some(format!("town_{index:02}")),
+            radius_m: Some(10.0),
+            spacing_m: None,
+            spawn: false,
+            at: Some("gate".to_owned()),
+            music: None,
+            music_radius_m: None,
+            scenery: None,
+            requires: Requires::default(),
+        });
+        disk.npcs.push(Npc {
+            id: format!("guard_{index:02}"),
+            name_key: "gate_guard.name".to_owned(),
+            place: gate,
+            character: super::disk::Character {
+                pack: "retro".to_owned(),
+                skin: "humanMaleA".to_owned(),
+                model: None,
+            },
+            dialogue: "gate_guard".to_owned(),
+            bio_key: Some("gate_guard.bio".to_owned()),
+            portrait: None,
+            tags: vec!["guard".to_owned()],
+        });
+    }
+    if guarded {
+        let file: DialogueFile =
+            serde_yaml::from_str(GATE_GUARD).expect("the built-in gate guard is valid");
+        disk.dialogues.push(file.dialogue);
+        for (language, table) in file.strings {
+            disk.strings.entry(language).or_default().extend(table);
+        }
+    }
     disk.sha256 = format!(
         "{:x}",
         Sha256::digest(format!("world:{seed}:{count}").as_bytes())
@@ -255,7 +305,7 @@ pub fn world_disk(seed: &str, count: usize) -> Disk {
 }
 
 #[derive(Deserialize)]
-struct ShipwrightFile {
+struct DialogueFile {
     dialogue: Dialogue,
     strings: BTreeMap<String, BTreeMap<String, String>>,
 }
@@ -265,6 +315,8 @@ struct ShipwrightFile {
 pub struct Built {
     pub props: Vec<WorldProp>,
     pub colliders: Vec<WorldObject>,
+    /// Settlements with a pasture where farm animals graze.
+    pub farms: Vec<crate::movement::FarmSite>,
 }
 
 fn to_props(
@@ -344,6 +396,11 @@ pub fn finish(
                     .and_then(Size::parse)
                     .unwrap_or(Size::Village);
                 let sea = placement::sea_toward(ground, site.direction, placement::COAST_M);
+                built.farms.push(crate::movement::FarmSite {
+                    id: anchor.id.clone(),
+                    direction: site.direction,
+                    radius_m: size.radius_m(),
+                });
                 to_props(
                     &anchor.id,
                     &site,
@@ -394,7 +451,7 @@ pub fn finish(
         }
     }
     if !harbours.is_empty() {
-        let file: ShipwrightFile = serde_yaml::from_str(SHIPWRIGHT)?;
+        let file: DialogueFile = serde_yaml::from_str(SHIPWRIGHT)?;
         let mut disk = empty_disk(manifest("harbours", "Harbours"));
         disk.dialogues.push(file.dialogue);
         for (language, table) in file.strings {
@@ -410,6 +467,7 @@ pub fn finish(
                 radius_m: Some(14.0),
                 spacing_m: None,
                 spawn: false,
+                at: None,
                 music: None,
                 music_radius_m: None,
                 scenery: None,
