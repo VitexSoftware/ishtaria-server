@@ -19,7 +19,8 @@
         "nature.pine",
         "platformer.pine",
         "platformer.snow-pine",
-        "nature.tree_cone*"
+        "nature.tree_cone*",
+        "quaternius.pine_*"
       ],
       "drops": [
         {
@@ -51,7 +52,8 @@
       "hits": 4,
       "regrow_minutes": 90,
       "models": [
-        "nature.tree_palm*"
+        "nature.tree_palm*",
+        "quaternius.palm_*"
       ],
       "drops": [
         {
@@ -87,7 +89,8 @@
         "nature.tree_oak*",
         "nature.tree_fat*",
         "nature.tree_blocks*",
-        "nature.tree_plateau*"
+        "nature.tree_plateau*",
+        "quaternius.tree_*"
       ],
       "drops": [
         {
@@ -153,7 +156,8 @@
       "models": [
         "nature.tree_*",
         "mini-forest.tree",
-        "survival.tree"
+        "survival.tree",
+        "quaternius.birch_*"
       ],
       "drops": [
         {
@@ -189,7 +193,10 @@
         "nature.stone_large*",
         "nature.stone_tall*",
         "mini-forest.rocks",
-        "platformer.rocks"
+        "platformer.rocks",
+        "quaternius.rock_1",
+        "quaternius.rock_2",
+        "quaternius.rock_3"
       ],
       "drops": [
         {
@@ -230,7 +237,8 @@
       "models": [
         "nature.rock*",
         "nature.stone*",
-        "survival.rock"
+        "survival.rock",
+        "quaternius.rock_*"
       ],
       "drops": [
         {

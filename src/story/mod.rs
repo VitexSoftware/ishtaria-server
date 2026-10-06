@@ -29,11 +29,23 @@ pub struct Anchor {
     pub place: Place,
 }
 
+/// A datadisk as announced to clients.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct DiskInfo {
+    pub id: String,
+    pub version: String,
+    pub name: String,
+    /// URL path of the cover image, when the disk has one.
+    pub cover: Option<String>,
+}
+
 /// Several datadisks composed into one world's story. Every id is `<disk>:<id>`.
 #[derive(Clone, Debug, Default)]
 pub struct Story {
     /// The disks in application order with their content hashes.
     pub disks: Vec<(String, String, String)>,
+    /// What clients are told about each disk, in application order.
+    pub infos: Vec<DiskInfo>,
     pub anchors: Vec<Anchor>,
     pub npcs: BTreeMap<String, Npc>,
     pub dialogues: HashMap<String, disk::Dialogue>,
@@ -42,6 +54,8 @@ pub struct Story {
     pub music: BTreeMap<String, (String, String, bool)>,
     /// Served media: `<disk>/<path>` -> (absolute file, sha256).
     pub media: BTreeMap<String, (PathBuf, String)>,
+    /// Spoken lines: (language, qualified text key) -> served media `<disk>/<path>`.
+    pub voices: BTreeMap<(String, String), String>,
     /// Language -> qualified text key -> text.
     pub strings: BTreeMap<String, BTreeMap<String, String>>,
 }
@@ -110,6 +124,16 @@ impl Story {
             disk.manifest.version.clone(),
             disk.sha256.clone(),
         ));
+        story.infos.push(DiskInfo {
+            id: id.clone(),
+            version: disk.manifest.version.clone(),
+            name: disk.manifest.name.clone(),
+            cover: disk
+                .manifest
+                .cover
+                .as_deref()
+                .map(|cover| world::media_url(&format!("{id}/{cover}"))),
+        });
         let depends: Vec<&str> = disk
             .manifest
             .requires
@@ -138,6 +162,7 @@ impl Story {
                 near.place = qualify(&id, &near.place);
             }
             place.name_key = qualify(&id, &place.name_key);
+            place.music = place.music.take().map(|m| qualify(&id, &m));
             story.anchors.push(Anchor {
                 id: qualify(&id, &place.id),
                 place,
@@ -152,6 +177,8 @@ impl Story {
             npc.name_key = qualify(&id, &npc.name_key);
             npc.bio_key = npc.bio_key.map(|k| qualify(&id, &k));
             npc.portrait = npc.portrait.map(|p| format!("{id}/{p}"));
+            // A model below `media/models/` is served like a portrait: under the id of its disk.
+            npc.character.model = npc.character.model.map(|m| format!("{id}/{m}"));
             npc.id = qualified.clone();
             story.npcs.insert(qualified, npc);
         }
@@ -189,6 +216,11 @@ impl Story {
         }
         for (path, file) in disk.media {
             story.media.insert(format!("{id}/{path}"), file);
+        }
+        for ((language, key), path) in disk.voices {
+            story
+                .voices
+                .insert((language, qualify(&id, &key)), format!("{id}/{path}"));
         }
         for mut quest in disk.quests {
             let qualified = qualify(&id, &quest.id);
@@ -238,6 +270,15 @@ impl Story {
                 npc.id,
                 npc.dialogue
             );
+        }
+        for anchor in &self.anchors {
+            if let Some(track) = &anchor.place.music {
+                ensure!(
+                    self.music.contains_key(track),
+                    "{}: unknown music {track}",
+                    anchor.id
+                );
+            }
         }
         for dialogue in self.dialogues.values() {
             if let Some(track) = &dialogue.music {

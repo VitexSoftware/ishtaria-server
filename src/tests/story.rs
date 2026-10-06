@@ -17,14 +17,14 @@ fn install_disk() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("ishtaria-story-it-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     let root = dir.join("play");
-    write(&root, "datadisk.yaml", "id: play\nversion: 1.0.0\nname: Test\nrequires_ruleset: \"1\"\nlicense: CC0-1.0\nattribution: Test\nlanguages: [en, cs]\n");
+    write(&root, "datadisk.yaml", "id: play\nversion: 1.0.0\nname: Test\nrequires_ruleset: \"1\"\nlicense: CC0-1.0\nattribution: Test\nlanguages: [en, cs]\ncover: media/cover/art.jpg\n");
     let strings = "place.hut: Hut\nnpc.hermit: Hermit\nhi: Hi\nbye: Bye\nq: Quest\nq.s1: One\nq.s2: Two\nmusic.t: Tune\nr: Walk\nr.a: Go\nr.b: Arrived\n";
     write(&root, "i18n/en.yaml", strings);
     write(&root, "i18n/cs.yaml", strings);
     write(
         &root,
         "places/p.yaml",
-        "- {id: hut, kind: building, name_key: place.hut, spawn: true}\n",
+        "- {id: hut, kind: building, name_key: place.hut, spawn: true, music: t, music_radius_m: 50}\n",
     );
     write(&root, "npcs/n.yaml", "- {id: hermit, name_key: npc.hermit, place: hut, character: {pack: retro, skin: humanMaleA}, dialogue: hermit, portrait: media/portraits/hermit.jpg}\n");
     write(
@@ -37,12 +37,20 @@ fn install_disk() -> PathBuf {
     write(&root, "dialogues/hermit.yaml", "id: hermit\nmusic: t\nstart: hi\nnodes:\n  hi:\n    text_key: hi\n    choices:\n      - {text_key: bye, if: {gold_at_least: 5}, effects: [{gold: -5}, {once: {key: reward, effects: [{gold: 20}, {set_stage: {quest: q, stage: s2}}]}}, {set_flag: met}, {set_stage: {quest: r, stage: a}}]}\n");
     fs::create_dir_all(root.join("media/portraits")).unwrap();
     fs::create_dir_all(root.join("media/music")).unwrap();
+    fs::create_dir_all(root.join("media/cover")).unwrap();
+    fs::write(
+        root.join("media/cover/art.jpg"),
+        b"\xff\xd8not a jpeg either",
+    )
+    .unwrap();
     fs::write(
         root.join("media/portraits/hermit.jpg"),
         b"\xff\xd8not really a jpeg",
     )
     .unwrap();
     fs::write(root.join("media/music/t.ogg"), b"OggS not really audio").unwrap();
+    fs::create_dir_all(root.join("media/voice/cs")).unwrap();
+    fs::write(root.join("media/voice/cs/hi.ogg"), b"OggS spoken").unwrap();
     dir
 }
 
@@ -98,6 +106,12 @@ async fn dialogue_is_server_authoritative_replay_safe_and_range_checked(pool: Pg
     assert_eq!(pinned.as_deref(), Some(story.story.disks[0].2.as_str()));
     let npc = story.npcs[0].clone();
     assert_eq!(npc.id, "play:hermit");
+    assert_eq!(story.areas.len(), 1, "the place with music is an area");
+    assert_eq!(story.areas[0].radius_m, 50.0);
+    assert_eq!(
+        story.areas[0].music.url,
+        "/story/media/play/media/music/t.ogg"
+    );
     assert_eq!(
         npc.portrait.as_deref(),
         Some("/story/media/play/media/portraits/hermit.jpg")
@@ -170,12 +184,16 @@ async fn dialogue_is_server_authoritative_replay_safe_and_range_checked(pool: Pg
         &router,
         &token,
         "/story/dialogue/start",
-        serde_json::json!({"npc_id": "play:hermit"}),
+        serde_json::json!({"npc_id": "play:hermit", "lang": "cs"}),
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
     let started = response_json(response).await;
     assert_eq!(started["node"]["text_key"], "play:hi");
+    assert_eq!(
+        started["node"]["voice"], "/story/media/play/media/voice/cs/hi.ogg",
+        "the spoken line comes in the requested language"
+    );
     assert_eq!(
         started["music"]["url"],
         "/story/media/play/media/music/t.ogg"
@@ -304,6 +322,23 @@ async fn dialogue_is_server_authoritative_replay_safe_and_range_checked(pool: Pg
         .await
         .unwrap();
     assert_eq!(cached.status(), StatusCode::NOT_MODIFIED);
+
+    // The world announces its datadisks and where their covers can be fetched without signing in.
+    let announced = request(&router, "/world").await;
+    assert_eq!(announced.status(), StatusCode::OK);
+    let announced: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(announced.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        announced["datadisks"],
+        serde_json::json!([{"id": "play", "version": "1.0.0", "name": "Test", "cover": "/story/media/play/media/cover/art.jpg"}])
+    );
+    let cover = request(&router, "/story/media/play/media/cover/art.jpg").await;
+    assert_eq!(cover.status(), StatusCode::OK);
+    assert_eq!(cover.headers()[header::CONTENT_TYPE], "image/jpeg");
 
     let image = request(&router, "/story/media/play/media/portraits/hermit.jpg").await;
     assert_eq!(image.status(), StatusCode::OK);

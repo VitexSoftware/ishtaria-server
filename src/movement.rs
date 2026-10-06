@@ -145,7 +145,14 @@ fn capsule_hit(
         .filter(|object| object.collision_radius_m > 0.0)
     {
         let Some((object_transform, mesh)) = object_shape(object) else {
-            return Some((0.0, unit(motion).map(|value| -value)));
+            // A round obstacle without a mesh (fences, graves, lamps of places) blocks sideways
+            // only; it must not stop a jump that goes straight up.
+            if let Some(hit) = cylinder_hit(point, motion, object) {
+                if closest.map_or(true, |(time, _)| hit.0 < time) {
+                    closest = Some(hit);
+                }
+            }
+            continue;
         };
         let (local_transform, body) = object_capsule(point, &object_transform, object.scale_m);
         let local_velocity =
@@ -178,6 +185,46 @@ fn capsule_hit(
         }
     }
     closest
+}
+
+/// Where a moving player first touches a mesh-less round obstacle (a vertical cylinder of the
+/// object's collision radius), and the horizontal normal there. Moving away is never blocked.
+fn cylinder_hit(
+    point: [f64; 3],
+    motion: [f64; 3],
+    object: &WorldObject,
+) -> Option<(f64, [f64; 3])> {
+    let up = unit(point);
+    let flat = |vector: [f64; 3]| -> [f64; 3] {
+        let lift = dot(vector, up);
+        std::array::from_fn(|axis| vector[axis] - up[axis] * lift)
+    };
+    let offset = flat(std::array::from_fn(|axis| {
+        point[axis] - object.position[axis]
+    }));
+    let sideways = flat(motion);
+    let reach = object.collision_radius_m + PLAYER_RADIUS;
+    let a = dot(sideways, sideways);
+    let b = dot(offset, sideways);
+    if a < 1e-12 || b >= 0.0 {
+        return None;
+    }
+    let c = dot(offset, offset) - reach * reach;
+    // Already inside: only motion deeper in counts, and it is stopped at once.
+    let time = if c <= 0.0 {
+        0.0
+    } else {
+        let discriminant = b * b - a * c;
+        if discriminant < 0.0 {
+            return None;
+        }
+        ((-b - discriminant.sqrt()) / a).max(0.0)
+    };
+    if time > 1.0 {
+        return None;
+    }
+    let touch: [f64; 3] = std::array::from_fn(|axis| offset[axis] + sideways[axis] * time);
+    (length(touch) > 1e-9).then(|| (time, unit(touch)))
 }
 
 fn recover_capsule(mut point: [f64; 3], objects: &[WorldObject]) -> [f64; 3] {
@@ -365,6 +412,8 @@ pub(super) struct ObjectRegion {
     objects: Vec<ObjectDescriptor>,
     /// Characters of the story datadisks standing nearby (passable for now).
     npcs: Vec<super::story::world::NpcDescriptor>,
+    /// Places with background music near the point.
+    areas: Vec<super::story::world::AreaDescriptor>,
     /// Buildings and props of towns, graveyards and harbours nearby.
     props: Vec<super::story::settlements::WorldProp>,
     memorials: Vec<super::survival::Memorial>,
@@ -534,6 +583,54 @@ impl WalkingTerrain {
             + ((vertical * size as f64) as usize).min(size - 1) * size
             + ((horizontal * size as f64) as usize).min(size - 1);
         Some((self.environment.biomes[index], height))
+    }
+
+    /// The water within `reach_m` metres of a point on the surface (position in metres from the
+    /// planet centre): fresh water (lake or river) wins over the sea.
+    pub(super) fn water_near(&self, position: [f64; 3], reach_m: f64) -> WaterNear {
+        let distance = length(position);
+        if distance < 1.0 {
+            return WaterNear::None;
+        }
+        let up = position.map(|value| value / distance);
+        let helper = if up[0].abs() < 0.9 {
+            [1.0, 0.0, 0.0]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let cross = |a: [f64; 3], b: [f64; 3]| {
+            [
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0],
+            ]
+        };
+        let east = cross(up, helper);
+        let east = east.map(|value| value / length(east));
+        let north = cross(up, east);
+        let mut found = WaterNear::None;
+        let mut samples = vec![(0.0, 0.0)];
+        for step in 0..8 {
+            let angle = f64::from(step) * std::f64::consts::FRAC_PI_4;
+            samples.push((angle.cos() * reach_m, angle.sin() * reach_m));
+            samples.push((angle.cos() * reach_m * 0.5, angle.sin() * reach_m * 0.5));
+        }
+        for (dx, dz) in samples {
+            let point: [f64; 3] =
+                std::array::from_fn(|axis| position[axis] + east[axis] * dx + north[axis] * dz);
+            let direction = point.map(|value| value / length(point));
+            let (face, horizontal, vertical) = coordinates(direction);
+            let size = self.environment.face_size;
+            let index = face * size * size
+                + ((vertical * size as f64) as usize).min(size - 1) * size
+                + ((horizontal * size as f64) as usize).min(size - 1);
+            match self.environment.biomes[index] {
+                1 | 2 => return WaterNear::Fresh,
+                0 => found = WaterNear::Salt,
+                _ => {}
+            }
+        }
+        found
     }
 
     /// True where the coarse environment map says open sea.
@@ -1062,6 +1159,14 @@ impl WalkingTerrain {
     }
 }
 
+/// What kind of water a character stands next to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WaterNear {
+    None,
+    Salt,
+    Fresh,
+}
+
 pub(super) async fn terrain(state: &AppState) -> Result<Arc<WalkingTerrain>, players::Error> {
     let unavailable = || {
         players::Error::Status(
@@ -1148,6 +1253,7 @@ pub(super) async fn world_objects(
     Ok(Json(ObjectRegion {
         memorials: super::survival::memorials(&state, unit(point)).await?,
         npcs: super::story::world::npcs_near(&state, point).await,
+        areas: super::story::world::areas_near(&state, point).await,
         props: super::story::world::props_near(&state, point).await,
         version: 1,
         heightmap_sha256: terrain.environment.heightmap_sha256.clone(),
@@ -1389,6 +1495,52 @@ mod tests {
         }
         assert!(!flight.airborne);
         assert!((length(point) - RADIUS - terrain.height(unit(point))).abs() < 0.000001);
+    }
+
+    #[test]
+    fn round_obstacles_without_a_mesh_block_sideways_but_not_a_jump() {
+        let pixels = vec![144; 16 * 16 * 6];
+        let mut terrain = WalkingTerrain {
+            size: 16,
+            environment: environment::generate(16, &pixels, "42", "test").unwrap(),
+            pixels,
+            catalog: Vec::new(),
+            removed: Default::default(),
+        };
+        terrain.environment.water_m.fill(environment::DRY);
+        terrain.environment.biomes.fill(4);
+        let start = [RADIUS + terrain.height([1.0, 0.0, 0.0]), 0.0, 0.0];
+        let grave = WorldObject {
+            id: "grave".into(),
+            model: String::new(),
+            position: [start[0], 0.0, 1.2],
+            scale_m: 1.0,
+            yaw: 0.0,
+            collision_radius_m: 0.4,
+            biome: 4,
+        };
+        let launch = |direction: [f64; 3]| {
+            let mut flight = Flight {
+                airborne: true,
+                vertical_speed: JUMP_SPEED,
+                horizontal: direction.map(|value| value * WALK_SPEED),
+            };
+            let point =
+                terrain.advance_over_objects(start, 0.2, &mut flight, std::slice::from_ref(&grave));
+            (point, flight)
+        };
+        let (up, flight) = launch([0.0; 3]);
+        assert!(
+            flight.airborne && length(up) > length(start) + 0.5,
+            "a standing jump rises"
+        );
+        let (toward, _) = launch([0.0, 0.0, 1.0]);
+        assert!(
+            toward[2] < 1.2 - 0.4 - PLAYER_RADIUS + 0.01,
+            "the grave stops a sideways jump at {toward:?}"
+        );
+        let (away, _) = launch([0.0, 0.0, -1.0]);
+        assert!(away[2] < -0.5, "moving away is free");
     }
 
     #[test]
@@ -1850,6 +2002,38 @@ mod tests {
             catalog,
             removed: Default::default(),
         }
+    }
+
+    #[test]
+    fn water_within_reach_is_fresh_salt_or_absent() {
+        let here = [RADIUS, 0.0, 0.0];
+        assert_eq!(
+            terrain_with(80, 1, Vec::new()).water_near(here, 6.0),
+            WaterNear::Fresh
+        );
+        assert_eq!(
+            terrain_with(80, 2, Vec::new()).water_near(here, 6.0),
+            WaterNear::Fresh
+        );
+        assert_eq!(
+            terrain_with(80, 0, Vec::new()).water_near(here, 6.0),
+            WaterNear::Salt
+        );
+        assert_eq!(
+            terrain_with(80, 4, Vec::new()).water_near(here, 6.0),
+            WaterNear::None
+        );
+        // Only the cube face of this point holds a lake: the far side of the planet has none.
+        let mut terrain = terrain_with(80, 4, Vec::new());
+        let size = terrain.environment.face_size;
+        let (face, _, _) = coordinates([1.0, 0.0, 0.0]);
+        terrain.environment.biomes[face * size * size..(face + 1) * size * size].fill(1);
+        assert_eq!(terrain.water_near(here, 6.0), WaterNear::Fresh);
+        assert_eq!(
+            terrain.water_near([-RADIUS, 0.0, 0.0], 6.0),
+            WaterNear::None
+        );
+        assert_eq!(terrain.water_near([0.0; 3], 6.0), WaterNear::None);
     }
 
     fn catalog_with_fauna() -> Vec<ObjectKind> {

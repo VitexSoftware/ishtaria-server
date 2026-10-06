@@ -415,21 +415,39 @@ async fn a_chosen_flag_is_shown_to_friends_and_is_only_a_picture(pool: PgPool) {
     assert!(me["flag"].is_null());
     let put = |token: String, body: serde_json::Value| {
         let router = router.clone();
-        async move { player_request(&router, "PUT", "/players/me/flag", &body.to_string(), &token).await }
+        async move {
+            player_request(
+                &router,
+                "PUT",
+                "/players/me/flag",
+                &body.to_string(),
+                &token,
+            )
+            .await
+        }
     };
     for bad in ["cz", "CZE", "C1", "", "<script>"] {
         assert_eq!(
-            put(anna.clone(), serde_json::json!({ "flag": bad })).await.status(),
+            put(anna.clone(), serde_json::json!({ "flag": bad }))
+                .await
+                .status(),
             StatusCode::BAD_REQUEST,
             "{bad:?} is no flag"
         );
     }
     assert_eq!(
-        put(anna.clone(), serde_json::json!({ "language": "cs" })).await.status(),
+        put(anna.clone(), serde_json::json!({ "language": "cs" }))
+            .await
+            .status(),
         StatusCode::UNPROCESSABLE_ENTITY,
         "the request carries no language"
     );
-    assert_eq!(put(String::new(), serde_json::json!({ "flag": "CZ" })).await.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        put(String::new(), serde_json::json!({ "flag": "CZ" }))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
 
     let shown = response_json(put(anna.clone(), serde_json::json!({ "flag": "CZ" })).await).await;
     assert_eq!(shown["flag"], "CZ");

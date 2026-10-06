@@ -176,6 +176,20 @@ fn valid_character(character: &str) -> bool {
             | "survivors/survivorMaleB"
             | "survivors/zombieA"
             | "survivors/zombieC"
+            | "quaternius/adventurer"
+            | "quaternius/adventurer_woman"
+            | "quaternius/hooded_adventurer_woman"
+            | "quaternius/character_animated"
+            | "quaternius/hoodie_character"
+            | "quaternius/punk"
+            | "quaternius/punk_woman"
+            | "quaternius/animated_woman"
+            | "quaternius/animated_woman_2"
+            | "quaternius/suit_woman"
+            | "quaternius/worker_woman"
+            | "quaternius/soldier_woman"
+            | "quaternius/sci_fi_woman"
+            | "quaternius/witch"
     )
 }
 

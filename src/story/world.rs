@@ -42,12 +42,32 @@ pub struct NpcDescriptor {
     pub name_key: String,
     /// `<pack>/<skin>` of the Kenney character models.
     pub character: String,
+    /// URL path of a glTF model drawn instead of `character`, when the NPC has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     pub position: [f64; 3],
     pub yaw: f64,
     pub scale_m: f64,
     /// URL path of the portrait, when the NPC has one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portrait: Option<String>,
+}
+
+/// A region around a place where a track plays; clients fade it in and out by distance.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct AreaDescriptor {
+    pub id: String,
+    pub position: [f64; 3],
+    pub radius_m: f64,
+    pub music: AreaMusic,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct AreaMusic {
+    pub url: String,
+    pub title_key: String,
+    #[serde(rename = "loop")]
+    pub looped: bool,
 }
 
 pub struct StoryWorld {
@@ -59,6 +79,8 @@ pub struct StoryWorld {
     /// Persisted sites of the places, by qualified place id.
     pub sites: HashMap<String, Placed>,
     pub npcs: Vec<NpcDescriptor>,
+    /// Places with background music.
+    pub areas: Vec<AreaDescriptor>,
 }
 
 /// Path clients use to fetch a media file of a disk.
@@ -227,6 +249,7 @@ async fn build(
     let colliders = built.colliders;
     let npcs = npc_descriptors(&story, &sites, terrain.as_ref());
     let spawn = find_spawn(&story, &sites, &colliders, &npcs, terrain.as_ref(), &seed);
+    let areas = area_descriptors(&story, &sites);
     movement::set_statics(format!("{seed}:{heightmap}"), colliders);
     Ok(StoryWorld {
         spawn,
@@ -234,6 +257,7 @@ async fn build(
         props,
         sites,
         npcs,
+        areas,
     })
 }
 
@@ -247,7 +271,10 @@ pub fn find_spawn(
     ground: &dyn placement::Ground,
     seed: &str,
 ) -> Option<[f64; 3]> {
-    let anchor = story.anchors.iter().find(|anchor| anchor.place.spawn && sites.contains_key(&anchor.id))?;
+    let anchor = story
+        .anchors
+        .iter()
+        .find(|anchor| anchor.place.spawn && sites.contains_key(&anchor.id))?;
     let site = &sites[&anchor.id];
     let reach = (anchor.place.radius_m.unwrap_or(20.0) * 0.4).clamp(3.0, 12.0);
     let mut random = crate::scenery::Rng::new(seed, &format!("spawn:{}", anchor.id));
@@ -268,7 +295,9 @@ pub fn find_spawn(
         let clear = |other: [f64; 3], radius: f64| {
             length(std::array::from_fn(|axis| position[axis] - other[axis])) > radius
         };
-        if colliders.iter().all(|c| clear(c.position, c.collision_radius_m + 1.2))
+        if colliders
+            .iter()
+            .all(|c| clear(c.position, c.collision_radius_m + 1.2))
             && npcs.iter().all(|npc| clear(npc.position, 2.0))
         {
             return Some(position);
@@ -278,6 +307,32 @@ pub fn find_spawn(
 }
 
 /// NPCs stand on a ring around their place; the spot comes from a hash of the NPC id.
+/// The places of the story that have background music.
+pub fn area_descriptors(story: &Story, sites: &HashMap<String, Placed>) -> Vec<AreaDescriptor> {
+    story
+        .anchors
+        .iter()
+        .filter_map(|anchor| {
+            let track = story.music.get(anchor.place.music.as_ref()?)?;
+            let site = sites.get(&anchor.id)?;
+            Some(AreaDescriptor {
+                id: anchor.id.clone(),
+                position: site_position(site),
+                radius_m: anchor
+                    .place
+                    .music_radius_m
+                    .or(anchor.place.radius_m)
+                    .unwrap_or(40.0),
+                music: AreaMusic {
+                    url: media_url(&track.0),
+                    title_key: track.1.clone(),
+                    looped: track.2,
+                },
+            })
+        })
+        .collect()
+}
+
 pub fn npc_descriptors(
     story: &Story,
     sites: &HashMap<String, Placed>,
@@ -308,6 +363,7 @@ pub fn npc_descriptors(
             id: npc.id.clone(),
             name_key: npc.name_key.clone(),
             character: format!("{}/{}", npc.character.pack, npc.character.skin),
+            model: npc.character.model.as_deref().map(media_url),
             position: direction.map(|axis| axis * (RADIUS + height)),
             yaw: sample(2) * std::f64::consts::TAU,
             scale_m: 1.8,
@@ -340,7 +396,11 @@ pub async fn props_near(state: &AppState, point: [f64; 3]) -> Vec<super::settlem
 
 /// Where new characters appear, if a datadisk defines a spawn point.
 pub async fn spawn_position(state: &AppState) -> Option<[f64; 3]> {
-    world(state).await.ok().flatten().and_then(|world| world.spawn)
+    world(state)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|world| world.spawn)
 }
 
 /// NPCs near a point. A broken or missing story never disturbs the rest of the world.
@@ -351,6 +411,23 @@ pub async fn npcs_near(state: &AppState, point: [f64; 3]) -> Vec<NpcDescriptor> 
             .iter()
             .filter(|npc| {
                 length(std::array::from_fn(|axis| npc.position[axis] - point[axis])) <= NPC_RADIUS_M
+            })
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Music areas whose region is near a point (the client works out the distance itself).
+pub async fn areas_near(state: &AppState, point: [f64; 3]) -> Vec<AreaDescriptor> {
+    match world(state).await {
+        Ok(Some(world)) => world
+            .areas
+            .iter()
+            .filter(|area| {
+                length(std::array::from_fn(|axis| {
+                    area.position[axis] - point[axis]
+                })) <= area.radius_m + NPC_RADIUS_M
             })
             .cloned()
             .collect(),

@@ -41,6 +41,9 @@ pub struct Manifest {
     pub attribution: String,
     #[serde(default)]
     pub rating: Option<String>,
+    /// Image below `media/` that clients show when they connect to a server using the disk.
+    #[serde(default)]
+    pub cover: Option<String>,
     #[serde(default = "default_languages")]
     pub languages: Vec<String>,
     #[serde(default)]
@@ -103,6 +106,10 @@ pub struct Place {
     /// New characters of the world appear here (the first such place of the first disk wins).
     #[serde(default)]
     pub spawn: bool,
+    /// Track (id of the disk's music) that plays while the player is within `music_radius_m`.
+    pub music: Option<String>,
+    /// Distance from the place where its music is heard; defaults to `radius_m`.
+    pub music_radius_m: Option<f64>,
     #[serde(default)]
     pub requires: Requires,
 }
@@ -111,7 +118,7 @@ pub struct Place {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Scenery {
-    /// `town` (houses, plaza, walls; harbour when by the sea) or `graveyard`.
+    /// `town` (houses, plaza, walls; harbour when by the sea), `graveyard` or `fortress`.
     pub preset: String,
     /// `hamlet`, `village` or `town` (presets that build settlements).
     pub size: Option<String>,
@@ -122,6 +129,9 @@ pub struct Scenery {
 pub struct Character {
     pub pack: String,
     pub skin: String,
+    /// A glTF binary below `media/models/` drawn instead of the pack character;
+    /// `pack`/`skin` stay the fallback when a client cannot load it.
+    pub model: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -301,6 +311,11 @@ pub struct Music {
 /// Largest portrait / track a datadisk may ship.
 pub const MAX_PORTRAIT_BYTES: u64 = 1 << 20;
 pub const MAX_MUSIC_BYTES: u64 = 8 << 20;
+/// Largest character model (`.glb`) a datadisk may ship.
+pub const MAX_MODEL_BYTES: u64 = 4 << 20;
+/// Largest spoken line and most spoken lines per language a datadisk may ship.
+pub const MAX_VOICE_BYTES: u64 = 2 << 20;
+pub const MAX_VOICES_PER_LANGUAGE: usize = 4000;
 
 /// Content type for a media path, by extension (the only types a disk may ship).
 pub fn media_type(path: &str) -> Option<&'static str> {
@@ -308,6 +323,7 @@ pub fn media_type(path: &str) -> Option<&'static str> {
         "png" => Some("image/png"),
         "jpg" => Some("image/jpeg"),
         "ogg" => Some("audio/ogg"),
+        "glb" => Some("model/gltf-binary"),
         _ => None,
     }
 }
@@ -342,6 +358,8 @@ pub struct Disk {
     pub music: Vec<Music>,
     /// Media files (path below the disk -> absolute file) with their sha256.
     pub media: BTreeMap<String, (PathBuf, String)>,
+    /// Spoken lines: (language, local text key) -> media path, from `media/voice/<language>/<key>.ogg`.
+    pub voices: BTreeMap<(String, String), String>,
     pub strings: BTreeMap<String, BTreeMap<String, String>>,
 }
 
@@ -476,15 +494,47 @@ impl Disk {
         }
         // Only files that an NPC or a track names are shipped; they are part of the hash.
         let mut wanted: Vec<&str> = npcs.iter().filter_map(|n| n.portrait.as_deref()).collect();
+        wanted.extend(npcs.iter().filter_map(|n| n.character.model.as_deref()));
         wanted.extend(music.iter().map(|m| m.file.as_str()));
+        wanted.extend(manifest.cover.as_deref());
+        // Spoken lines: a file `media/voice/<language>/<text key>.ogg` for a key a dialogue node shows.
+        let spoken: std::collections::BTreeSet<&str> = dialogues
+            .iter()
+            .flat_map(|d| d.nodes.values())
+            .filter_map(|n| n.text_key.as_deref())
+            .collect();
+        let mut voices = BTreeMap::new();
+        let mut voice_paths = Vec::new();
+        for language in &manifest.languages {
+            let folder = dir.join("media").join("voice").join(language);
+            if !folder.is_dir() {
+                continue;
+            }
+            for key in &spoken {
+                let relative = format!("media/voice/{language}/{key}.ogg");
+                if fs::symlink_metadata(dir.join(&relative)).is_ok() {
+                    voices.insert((language.clone(), (*key).to_owned()), relative.clone());
+                    voice_paths.push(relative);
+                }
+            }
+            ensure!(
+                voices.len() <= MAX_VOICES_PER_LANGUAGE,
+                "{language}: too many spoken lines"
+            );
+        }
+        wanted.extend(voice_paths.iter().map(String::as_str));
         wanted.sort_unstable();
         wanted.dedup();
         let mut media = BTreeMap::new();
         for relative in wanted {
             ensure!(is_media_path(relative), "invalid media path {relative}");
             let path = dir.join(relative);
-            let limit = if relative.ends_with(".ogg") {
+            let limit = if relative.starts_with("media/voice/") {
+                MAX_VOICE_BYTES
+            } else if relative.ends_with(".ogg") {
                 MAX_MUSIC_BYTES
+            } else if relative.ends_with(".glb") {
+                MAX_MODEL_BYTES
             } else {
                 MAX_PORTRAIT_BYTES
             };
@@ -512,6 +562,7 @@ impl Disk {
             lore,
             music,
             media,
+            voices,
             strings,
         };
         disk.check(allow_draft)?;
@@ -571,7 +622,7 @@ impl Disk {
             }
             if let Some(scenery) = &place.scenery {
                 ensure!(
-                    matches!(scenery.preset.as_str(), "town" | "graveyard"),
+                    matches!(scenery.preset.as_str(), "town" | "graveyard" | "fortress"),
                     "{id}: unknown scenery preset {}",
                     scenery.preset
                 );
@@ -647,6 +698,12 @@ impl Disk {
                 "{id}: unknown character pack {}",
                 npc.character.pack
             );
+            if let Some(model) = &npc.character.model {
+                ensure!(
+                    model.starts_with("media/models/") && model.ends_with(".glb"),
+                    "{id}: model {model} must be a .glb below media/models/"
+                );
+            }
         }
         let tracks: HashSet<&str> = unique(self.music.iter().map(|m| m.id.as_str()), "music")?;
         for track in &self.music {
@@ -655,6 +712,12 @@ impl Disk {
                 track.file.ends_with(".ogg"),
                 "{id}: track {} must be an .ogg file",
                 track.id
+            );
+        }
+        if let Some(cover) = &self.manifest.cover {
+            ensure!(
+                cover.ends_with(".png") || cover.ends_with(".jpg"),
+                "{id}: cover {cover} must be a png or jpg"
             );
         }
         for npc in &self.npcs {

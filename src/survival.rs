@@ -13,6 +13,12 @@ const REST_DELAY: f64 = 5.0;
 const STAMINA_RECOVERY: f64 = 0.5;
 const WATER_IDLE_RATE: f64 = 0.01;
 const DEHYDRATION_DAMAGE: f64 = 0.2;
+/// A character is present while their client reports (events poll) or they move within this
+/// many seconds. Sleeping characters lose no water: only present time is charged.
+const PRESENCE_SECONDS: f64 = 120.0;
+/// Water one drink from fresh water restores, and how far from the water the character may stand.
+const DRINK_WATER: f64 = 25.0;
+const DRINK_REACH_M: f64 = 6.0;
 
 #[derive(FromRow)]
 struct Reserves {
@@ -22,11 +28,12 @@ struct Reserves {
     activity_seconds: f64,
     elapsed: f64,
     idle: f64,
+    present: bool,
 }
 
 async fn reserves(transaction: &mut Transaction<'_, Postgres>, id: i64) -> Result<Reserves, Error> {
-    Ok(sqlx::query_as("SELECT stamina + stamina_fraction AS stamina, water + water_fraction AS water, health + health_fraction AS health, activity_seconds, greatest(0, extract(epoch FROM (clock_timestamp() - survival_updated_at)))::float8 AS elapsed, greatest(0, extract(epoch FROM (clock_timestamp() - last_active_at)))::float8 AS idle FROM players WHERE id = $1")
-        .bind(id).fetch_one(&mut **transaction).await?)
+    Ok(sqlx::query_as("SELECT stamina + stamina_fraction AS stamina, water + water_fraction AS water, health + health_fraction AS health, activity_seconds, greatest(0, extract(epoch FROM (clock_timestamp() - survival_updated_at)))::float8 AS elapsed, greatest(0, extract(epoch FROM (clock_timestamp() - last_active_at)))::float8 AS idle, coalesce(greatest(last_seen_at, last_active_at) > clock_timestamp() - make_interval(secs => $2), false) AS present FROM players WHERE id = $1")
+        .bind(id).bind(PRESENCE_SECONDS).fetch_one(&mut **transaction).await?)
 }
 
 async fn save_reserves(
@@ -46,8 +53,10 @@ async fn rest(transaction: &mut Transaction<'_, Postgres>, id: i64) -> Result<bo
     if resting > 0.0 {
         value.activity_seconds = 0.0;
     }
-    let dehydrated = (value.elapsed - (value.water - 1.0).max(0.0) / WATER_IDLE_RATE).max(0.0);
-    value.water = (value.water - value.elapsed * WATER_IDLE_RATE).max(0.0);
+    // A sleeping (disconnected) character keeps their water.
+    let awake = if value.present { value.elapsed } else { 0.0 };
+    let dehydrated = (awake - (value.water - 1.0).max(0.0) / WATER_IDLE_RATE).max(0.0);
+    value.water = (value.water - awake * WATER_IDLE_RATE).max(0.0);
     value.health = (value.health - dehydrated * DEHYDRATION_DAMAGE).clamp(0.0, 100.0);
     save_reserves(transaction, id, &value).await?;
     sqlx::query("UPDATE players SET survival_updated_at = clock_timestamp() WHERE id = $1")
@@ -107,6 +116,8 @@ pub(super) struct Item {
     name: String,
     quantity: String,
     calories: i32,
+    /// Water points eating the item restores.
+    water: i32,
     capacity_bonus: i32,
     asset: Option<String>,
     /// Remaining durability of the piece in use and the durability of a new piece.
@@ -201,8 +212,41 @@ struct Loot {
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/players/me/eat", post(eat))
+        .route("/players/me/drink", post(drink))
         .route("/graves/{id}", get(grave))
         .route("/graves/{id}/loot", post(loot))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::story::settlements::WorldProp;
+
+    fn prop(model: &str, position: [f64; 3]) -> WorldProp {
+        WorldProp {
+            id: "p".into(),
+            model: model.into(),
+            position,
+            yaw: 0.0,
+            scale_m: 3.0,
+        }
+    }
+
+    #[test]
+    fn only_a_fountain_within_reach_gives_water() {
+        let me = [6_371_000.0, 0.0, 0.0];
+        let props = [
+            prop("town.wall", [6_371_000.0, 1.0, 0.0]),
+            prop("town.fountain-round", [6_371_000.0, 4.0, 3.0]),
+        ];
+        assert!(fountain_within(&props, me, DRINK_REACH_M));
+        assert!(!fountain_within(&props[..1], me, DRINK_REACH_M));
+        assert!(!fountain_within(
+            &props,
+            [6_371_000.0, 40.0, 0.0],
+            DRINK_REACH_M
+        ));
+    }
 }
 
 pub(super) async fn life(
@@ -226,7 +270,7 @@ pub(super) async fn inventory(
     id: i64,
 ) -> Result<Inventory, Error> {
     let (capacity, used) = slots(transaction, id).await?;
-    let items = sqlx::query_as("SELECT item_id, name, quantity::text, calories, capacity_bonus, asset, coalesce(durability, max_durability) AS durability, max_durability, category FROM player_inventory JOIN item_types ON item_types.id = item_id WHERE player_id = $1 AND item_id <> 'gold' ORDER BY item_id")
+    let items = sqlx::query_as("SELECT item_id, name, quantity::text, calories, water, capacity_bonus, asset, coalesce(durability, max_durability) AS durability, max_durability, category FROM player_inventory JOIN item_types ON item_types.id = item_id WHERE player_id = $1 AND item_id <> 'gold' ORDER BY item_id")
         .bind(id).fetch_all(&mut **transaction).await?;
     Ok(Inventory {
         capacity,
@@ -391,9 +435,9 @@ async fn eat(
         transaction.commit().await?;
         return Err(Error::Status(StatusCode::GONE, "player is dead"));
     }
-    let food: Option<(i64, i32)> = sqlx::query_as("SELECT quantity, calories FROM player_inventory JOIN item_types ON item_types.id = item_id WHERE player_id = $1 AND item_id = $2 AND calories > 0")
+    let food: Option<(i64, i32, i32)> = sqlx::query_as("SELECT quantity, calories, water FROM player_inventory JOIN item_types ON item_types.id = item_id WHERE player_id = $1 AND item_id = $2 AND calories > 0")
         .bind(id).bind(&input.item_id).fetch_optional(&mut *transaction).await?;
-    let (quantity, calories) = food.ok_or(Error::Status(
+    let (quantity, calories, water) = food.ok_or(Error::Status(
         StatusCode::BAD_REQUEST,
         "edible item not found",
     ))?;
@@ -406,8 +450,74 @@ async fn eat(
     } else {
         sqlx::query("UPDATE player_inventory SET quantity = quantity - 1 WHERE player_id = $1 AND item_id = $2").bind(id).bind(&input.item_id).execute(&mut *transaction).await?;
     }
-    sqlx::query("UPDATE players SET health = least(100, health + CASE WHEN last_ate_at > now() - interval '6048 seconds' THEN 5 ELSE 0 END), last_ate_at = now(), calories_consumed = calories_consumed + $2, food = 100 WHERE id = $1")
-        .bind(id).bind(i64::from(calories)).execute(&mut *transaction).await?;
+    sqlx::query("UPDATE players SET health = least(100, health + CASE WHEN last_ate_at > now() - interval '6048 seconds' THEN 5 ELSE 0 END), last_ate_at = now(), calories_consumed = calories_consumed + $2, food = 100, water = least(100, water + $3), water_fraction = CASE WHEN water + $3 >= 100 THEN 0 ELSE water_fraction END WHERE id = $1")
+        .bind(id).bind(i64::from(calories)).bind(water).execute(&mut *transaction).await?;
+    transaction.commit().await?;
+    Ok(Json(players::profile(&state, id).await?))
+}
+
+/// Whether a plaza fountain (the drinking water of every generated settlement) is within
+/// `reach_m` metres of `position`.
+fn fountain_within(
+    props: &[super::story::settlements::WorldProp],
+    position: [f64; 3],
+    reach_m: f64,
+) -> bool {
+    props.iter().any(|prop| {
+        prop.model == "town.fountain-round"
+            && (0..3)
+                .map(|axis| (prop.position[axis] - position[axis]).powi(2))
+                .sum::<f64>()
+                <= reach_m * reach_m
+    })
+}
+
+/// Drinks from a fountain of a settlement or from fresh water (lake or river) within reach of
+/// the character. Sea water is salty.
+async fn drink(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<players::Player>, Error> {
+    let id = players::player_id(&state, &players::token_hash(&headers)?).await?;
+    settle(&state, id).await?;
+    let terrain = super::movement::terrain(&state).await?;
+    let mut transaction = state.pool.begin().await?;
+    let player = lock(&mut transaction, state.world_id, id).await?;
+    if !player.alive {
+        return Err(Error::Status(StatusCode::GONE, "player is dead"));
+    }
+    let position: Option<(Option<f64>, Option<f64>, Option<f64>)> =
+        sqlx::query_as("SELECT position_x, position_y, position_z FROM players WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+    let Some((Some(x), Some(y), Some(z))) = position else {
+        return Err(Error::Status(StatusCode::CONFLICT, "position unknown"));
+    };
+    let fountain = fountain_within(
+        &super::story::world::props_near(&state, [x, y, z]).await,
+        [x, y, z],
+        DRINK_REACH_M,
+    );
+    match terrain.water_near([x, y, z], DRINK_REACH_M) {
+        _ if fountain => {}
+        super::movement::WaterNear::Fresh => {}
+        super::movement::WaterNear::Salt => {
+            return Err(Error::Status(
+                StatusCode::CONFLICT,
+                "sea water is not drinkable",
+            ))
+        }
+        super::movement::WaterNear::None => {
+            return Err(Error::Status(
+                StatusCode::CONFLICT,
+                "no fresh water within reach",
+            ))
+        }
+    }
+    let mut value = reserves(&mut transaction, id).await?;
+    value.water = (value.water + DRINK_WATER).min(100.0);
+    save_reserves(&mut transaction, id, &value).await?;
     transaction.commit().await?;
     Ok(Json(players::profile(&state, id).await?))
 }
@@ -445,7 +555,7 @@ async fn grave(
     let mut grave: Grave = sqlx::query_as("SELECT id::text, player_uuid::text, player_name, kind, cause, died_at::text, coalesce((SELECT quantity FROM grave_inventory WHERE grave_id = graves.id AND item_id = 'gold'), 0)::text AS gold, position_x, position_y, position_z FROM graves WHERE world_id = $1 AND id = $2 FOR SHARE")
         .bind(state.world_id).bind(id).fetch_optional(&mut *transaction).await?
         .ok_or(Error::Status(StatusCode::NOT_FOUND, "grave not found"))?;
-    grave.items = sqlx::query_as("SELECT item_id, name, quantity::text, calories, capacity_bonus, asset, coalesce(durability, max_durability) AS durability, max_durability, category FROM grave_inventory JOIN item_types ON item_types.id = item_id WHERE grave_id = $1 AND item_id <> 'gold' ORDER BY item_id")
+    grave.items = sqlx::query_as("SELECT item_id, name, quantity::text, calories, water, capacity_bonus, asset, coalesce(durability, max_durability) AS durability, max_durability, category FROM grave_inventory JOIN item_types ON item_types.id = item_id WHERE grave_id = $1 AND item_id <> 'gold' ORDER BY item_id")
         .bind(id).fetch_all(&mut *transaction).await?;
     grave.obituary = Some(sqlx::query_as("SELECT player_name AS name, to_char(born_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS born_at, lived_days::text, lifetime_gold::text, friends_count::text FROM graves WHERE id = $1")
         .bind(id).fetch_one(&mut *transaction).await?);

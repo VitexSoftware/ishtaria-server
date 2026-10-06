@@ -698,7 +698,11 @@ mod unit_tests {
         for object in catalog["objects"].as_array().unwrap() {
             let model = object["id"].as_str().unwrap();
             let name = model.split_once('.').unwrap().1;
-            let is_tree = name.starts_with("tree") || name == "oak" || name.contains("pine");
+            let is_tree = name.starts_with("tree")
+                || name == "oak"
+                || name.contains("pine")
+                || name.starts_with("birch")
+                || name.starts_with("palm");
             let is_rock = name.starts_with("rock") || name.starts_with("stone");
             match resource_of(model) {
                 Some(resource) if is_tree => {

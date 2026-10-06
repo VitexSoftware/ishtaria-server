@@ -254,12 +254,19 @@ consume activity reserves. Zero stamina disables running, including its boosted
 jump, and further movement costs 0.05 health per second. Movement replies include
 the current authoritative `stats` for the HUD.
 
-Water costs 0.01 per real second, including offline time, plus 0.015 per walking
+Water costs 0.01 per real second while the character is present (the client polls
+`/events` or the character moves within the last 120 seconds), plus 0.015 per walking
 second or 0.09 per running second. Zero water costs 0.2 health per real second.
 The displayed integer zero is the threshold for exhaustion and dehydration;
 fractional remainders preserve rates between updates. Health reaching zero causes
 permanent death. Eating while already at full displayed food restores five health,
-capped at 100; eating while hungry only restores food. Drinking is not implemented.
+capped at 100; eating while hungry only restores food. A sleeping (disconnected)
+character loses no water and takes no dehydration damage; hunger still counts offline
+(seven real days without eating are fatal). Food also restores water (`item_types.water`,
+migration `0031_drinking.sql`: apple and pear 8, carrot 5, coconut 25, bread and cheese 1);
+inventory items report it as `water`. `POST /players/me/drink` restores 25 water when a
+settlement fountain or fresh water (lake or river cell of the environment map) is within
+6 metres of the character; sea water is refused as salty (`409`).
 
 Death atomically transfers possessions into one grave and revokes all sessions.
 The old character can never sign in or respawn. A new life requires registration

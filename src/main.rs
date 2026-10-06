@@ -110,6 +110,9 @@ struct World {
     solar: atmosphere::Solar,
     #[sqlx(skip)]
     messages: Vec<ServerMessage>,
+    /// Story datadisks the world was generated with, in application order.
+    #[sqlx(skip)]
+    datadisks: Vec<story::DiskInfo>,
 }
 
 /// Message the server wants the client to display. `system` messages come from
@@ -254,7 +257,27 @@ async fn world(
             text: row.message,
         })
         .collect();
+    world.datadisks = announced_datadisks(&state).await;
     Ok(Json(world))
+}
+
+/// The datadisks of this world for clients. A story that cannot be loaded announces none:
+/// the world itself stays usable.
+async fn announced_datadisks(state: &AppState) -> Vec<story::DiskInfo> {
+    let Ok(Some(world)) = story::world::world(state).await else {
+        return Vec::new();
+    };
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT disk_id FROM world_datadisks WHERE world_id = $1 ORDER BY position",
+    )
+    .bind(state.world_id)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+    ids.iter()
+        .filter_map(|id| world.story.infos.iter().find(|info| &info.id == id))
+        .cloned()
+        .collect()
 }
 
 async fn heightmap(State(state): State<AppState>) -> Result<Response, ApiError> {

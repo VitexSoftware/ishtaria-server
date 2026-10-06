@@ -82,6 +82,90 @@ fn composes_disks_in_dependency_order_with_qualified_ids() {
 }
 
 #[test]
+fn announces_the_cover_of_a_disk_and_rejects_a_missing_one() {
+    let a = scratch("cover");
+    base(&a, "covered", "1.0.0", "cover: media/cover/art.jpg\n");
+    assert!(
+        Story::load(std::slice::from_ref(&a), false).is_err(),
+        "a cover that is not shipped must be rejected"
+    );
+    write(&a, "media/cover/art.jpg", "jpeg bytes");
+    let story = Story::load(&[a], false).unwrap();
+    assert_eq!(story.infos.len(), 1);
+    assert_eq!(story.infos[0].id, "covered");
+    assert_eq!(story.infos[0].name, "Test");
+    assert_eq!(
+        story.infos[0].cover.as_deref(),
+        Some("/story/media/covered/media/cover/art.jpg")
+    );
+    assert!(story.media.contains_key("covered/media/cover/art.jpg"));
+}
+
+#[test]
+fn an_npc_model_is_shipped_validated_and_announced() {
+    let a = scratch("model");
+    base(&a, "zeta", "1.0.0", "");
+    let with_model = |model: &str| {
+        write(
+            &a,
+            "npcs/n.yaml",
+            &format!("- {{id: hermit, name_key: npc.hermit, place: hut, character: {{pack: retro, skin: humanMaleA, model: {model}}}, dialogue: hermit}}\n"),
+        );
+    };
+    with_model("media/models/hermit.glb");
+    assert!(
+        Story::load(std::slice::from_ref(&a), false).is_err(),
+        "a model that is not shipped must be rejected"
+    );
+    write(&a, "media/models/hermit.glb", "glTF");
+    let story = Story::load(std::slice::from_ref(&a), false).unwrap();
+    assert!(story.media.contains_key("zeta/media/models/hermit.glb"));
+    let big = vec![0u8; (super::disk::MAX_MODEL_BYTES + 1) as usize];
+    fs::write(a.join("media/models/hermit.glb"), big).unwrap();
+    assert!(
+        Story::load(std::slice::from_ref(&a), false).is_err(),
+        "oversized model"
+    );
+    fs::write(a.join("media/models/hermit.glb"), "glTF").unwrap();
+    write(&a, "media/other/hermit.glb", "glTF");
+    with_model("media/other/hermit.glb");
+    assert!(
+        Story::load(std::slice::from_ref(&a), false).is_err(),
+        "models belong below media/models/"
+    );
+}
+
+#[test]
+fn spoken_lines_are_found_by_language_and_text_key_and_limited_in_size() {
+    let a = scratch("voice");
+    base(&a, "zeta", "1.0.0", "");
+    write(&a, "media/voice/cs/hi.ogg", "OggS");
+    write(&a, "media/voice/cs/unused.ogg", "OggS");
+    let story = Story::load(std::slice::from_ref(&a), false).unwrap();
+    assert_eq!(
+        story.voices[&("cs".to_owned(), "zeta:hi".to_owned())],
+        "zeta/media/voice/cs/hi.ogg"
+    );
+    assert!(
+        !story
+            .voices
+            .contains_key(&("en".to_owned(), "zeta:hi".to_owned())),
+        "no English recording"
+    );
+    assert!(
+        story.media.contains_key("zeta/media/voice/cs/hi.ogg")
+            && !story.media.contains_key("zeta/media/voice/cs/unused.ogg"),
+        "only lines a node shows are served"
+    );
+    let big = vec![0u8; (super::disk::MAX_VOICE_BYTES + 1) as usize];
+    fs::write(a.join("media/voice/cs/hi.ogg"), big).unwrap();
+    assert!(
+        Story::load(std::slice::from_ref(&a), false).is_err(),
+        "oversized line"
+    );
+}
+
+#[test]
 fn rejects_missing_dependencies_conflicts_and_drafts() {
     let a = scratch("dep");
     base(
@@ -341,14 +425,14 @@ fn placement_fails_clearly_when_nothing_fits() {
 }
 
 #[test]
-fn the_endland_intro_names_the_player_hugo_and_hands_out_the_aetherglass_once() {
+fn the_endland_intro_asks_the_name_and_hands_out_the_aetherglass_once() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ishtaria-datadisk-endland");
     if !path.join("datadisk.yaml").is_file() {
         return;
     }
     let story = Story::load(&[path], false).unwrap();
     let faust = &story.dialogues["endland:faust_intro"];
-    for name_choice in 0..3 {
+    for name_choice in 0..2 {
         let mut state = PlayerState::default();
         let mut ops = Vec::new();
         let shown = engine::enter(faust, "route", &mut state, &mut ops)
@@ -364,11 +448,7 @@ fn the_endland_intro_names_the_player_hugo_and_hands_out_the_aetherglass_once() 
             Choose::Next(_)
         ));
         assert_eq!(state.stages["endland:intro"], "named");
-        assert_eq!(
-            state.flags.contains("endland:intro_true_hugo"),
-            name_choice == 2
-        );
-        let reply = ["refused", "told", "true_hugo"][name_choice];
+        let reply = ["refused", "told"][name_choice];
         engine::choose(faust, reply, 0, &mut state, &mut ops);
         engine::choose(faust, "aether", 1, &mut state, &mut ops);
         assert_eq!(state.items["aetherglass"], 1);
@@ -388,14 +468,18 @@ fn the_endland_intro_names_the_player_hugo_and_hands_out_the_aetherglass_once() 
 fn every_world_grows_towns_with_graveyards_and_harbours_with_shipwrights() {
     use super::{placement::place_anchors, settlements};
     let disk = settlements::world_disk("42", 6);
-    assert_eq!(disk.places.len(), 12, "a town and a graveyard each");
+    assert_eq!(
+        disk.places.len(),
+        13,
+        "a town and a graveyard each, and a fortress for every fourth town"
+    );
     let mut story = Story::compose(vec![disk]).unwrap();
     let mut sites: std::collections::HashMap<_, _> = place_anchors(&story, &Flat, "42", &[])
         .unwrap()
         .into_iter()
         .map(|site| (site.id.clone(), site))
         .collect();
-    assert_eq!(sites.len(), 12);
+    assert_eq!(sites.len(), 13);
     let built = settlements::finish(&mut story, &mut sites, &Flat, "42").unwrap();
     let props = &built.props;
     assert!(
@@ -403,6 +487,12 @@ fn every_world_grows_towns_with_graveyards_and_harbours_with_shipwrights() {
     );
     assert!(props.iter().any(|p| p.model == "graveyard.crypt-large"));
     assert!(props.iter().any(|p| p.model == "town.fountain-round"));
+    assert!(props.iter().any(|p| p.model == "quaternius.castle_gate"));
+    assert!(props.iter().any(|p| p.model == "quaternius.temple"));
+    assert_eq!(
+        story.strings["cs"]["world:fort_00.name"].split(' ').next(),
+        Some("Pevnost")
+    );
     let shipwrights: Vec<_> = story
         .npcs
         .keys()
@@ -449,6 +539,20 @@ fn the_spawn_point_of_a_disk_is_a_free_spot_inside_its_place() {
         .collect();
     let built = settlements::finish(&mut story, &mut sites, &Flat, "42").unwrap();
     let npcs = npc_descriptors(&story, &sites, &Flat);
+    // The model of Faust is announced under the id of its disk, like his portrait, or the client
+    // asks for a file that does not exist and keeps the pack character.
+    let faust = npcs
+        .iter()
+        .find(|npc| npc.id == "endland:faust_graveyard")
+        .expect("Faust stands in the graveyard");
+    assert_eq!(
+        faust.model.as_deref(),
+        Some("/story/media/endland/media/models/faust.glb")
+    );
+    assert_eq!(
+        faust.portrait.as_deref(),
+        Some("/story/media/endland/media/portraits/faust.jpg")
+    );
     let spawn =
         find_spawn(&story, &sites, &built.colliders, &npcs, &Flat, "42").expect("a spawn place");
     let distance =

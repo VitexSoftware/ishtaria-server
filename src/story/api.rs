@@ -39,6 +39,10 @@ pub fn routes() -> Router<AppState> {
 #[serde(deny_unknown_fields)]
 struct Start {
     npc_id: String,
+    /// Language of the client's UI (two lowercase letters): only selects the spoken line to send.
+    /// It is never stored.
+    #[serde(default)]
+    lang: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -48,6 +52,9 @@ struct ChooseRequest {
     /// The `seq` of the answer the choice was made from.
     seq: i64,
     choice: usize,
+    /// See [`Start::lang`].
+    #[serde(default)]
+    lang: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -194,13 +201,31 @@ async fn near_npc<'a>(
     Ok(npc)
 }
 
+/// The language of a request: two lowercase ASCII letters, anything else is ignored.
+fn request_language(lang: &Option<String>) -> Option<&str> {
+    lang.as_deref()
+        .filter(|l| l.len() == 2 && l.bytes().all(|b| b.is_ascii_lowercase()))
+}
+
 fn reply(
     story: &StoryWorld,
     npc: &world::NpcDescriptor,
     seq: i64,
     node: Option<Shown>,
+    lang: Option<&str>,
     player: players::Player,
 ) -> Reply {
+    let node = node.map(|mut shown| {
+        shown.voice = lang
+            .and_then(|l| {
+                story
+                    .story
+                    .voices
+                    .get(&(l.to_owned(), shown.text_key.clone()))
+            })
+            .map(|file| world::media_url(file));
+        shown
+    });
     let dialogue = story
         .story
         .npcs
@@ -257,7 +282,14 @@ async fn start(
         .await?;
     tx.commit().await?;
     let player = players::profile(&state, player_id).await?;
-    Ok(Json(reply(&story, npc, seq, Some(shown), player)))
+    Ok(Json(reply(
+        &story,
+        npc,
+        seq,
+        Some(shown),
+        request_language(&request.lang),
+        player,
+    )))
 }
 
 async fn choose(
@@ -308,7 +340,14 @@ async fn choose(
     };
     tx.commit().await?;
     let player = players::profile(&state, player_id).await?;
-    Ok(Json(reply(&story, npc, next_seq, shown, player)))
+    Ok(Json(reply(
+        &story,
+        npc,
+        next_seq,
+        shown,
+        request_language(&request.lang),
+        player,
+    )))
 }
 
 /// Closes the conversation without choosing (the player walked away or pressed escape).
@@ -424,8 +463,9 @@ fn not_modified(headers: &HeaderMap, tag: &str) -> bool {
         .is_some_and(|value| value == tag)
 }
 
-/// All translations of every applied disk. The server does not know the client's
-/// language, so it hands out every language and the client picks.
+/// All translations of every applied disk. They are not selected by language, so every
+/// language is handed out and the client picks (dialogue requests do name a language, but
+/// only to choose the spoken line).
 async fn strings(State(state): State<AppState>, headers: HeaderMap) -> Result<Response, Error> {
     let story = story_of(&state).await?;
     let version = format!(

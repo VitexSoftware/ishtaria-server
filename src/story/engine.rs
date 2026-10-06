@@ -157,6 +157,9 @@ pub struct VisibleChoice {
 pub struct Shown {
     pub node: String,
     pub text_key: String,
+    /// Media URL of the spoken line in the language the client asked for, if the disk has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
     pub choices: Vec<VisibleChoice>,
 }
 
@@ -202,6 +205,7 @@ pub fn enter(
         return Ok(Some(Shown {
             node: current,
             text_key: found.text_key.clone().unwrap_or_default(),
+            voice: None,
             choices,
         }));
     }

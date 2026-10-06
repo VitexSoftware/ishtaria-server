@@ -1990,6 +1990,335 @@
         4
       ],
       "collision_radius": 0.051
+    },
+    {
+      "id": "quaternius.tree_1",
+      "weight": 0.5,
+      "scale_m": 1,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.353
+    },
+    {
+      "id": "quaternius.tree_2",
+      "weight": 0.5,
+      "scale_m": 1,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.345
+    },
+    {
+      "id": "quaternius.tree_3",
+      "weight": 0.5,
+      "scale_m": 1,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.793
+    },
+    {
+      "id": "quaternius.tree_4",
+      "weight": 0.5,
+      "scale_m": 1,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.423
+    },
+    {
+      "id": "quaternius.tree_5",
+      "weight": 0.5,
+      "scale_m": 1,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.251
+    },
+    {
+      "id": "quaternius.pine_1",
+      "weight": 0.75,
+      "scale_m": 0.8,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.49
+    },
+    {
+      "id": "quaternius.pine_2",
+      "weight": 0.75,
+      "scale_m": 0.8,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.271
+    },
+    {
+      "id": "quaternius.pine_3",
+      "weight": 0.75,
+      "scale_m": 0.8,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.49
+    },
+    {
+      "id": "quaternius.pine_4",
+      "weight": 0.75,
+      "scale_m": 0.8,
+      "max_slope": 0.65,
+      "biomes": [
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 0.271
+    },
+    {
+      "id": "quaternius.tree_6",
+      "weight": 1.0,
+      "scale_m": 0.8,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.741
+    },
+    {
+      "id": "quaternius.tree_7",
+      "weight": 1.0,
+      "scale_m": 0.8,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.741
+    },
+    {
+      "id": "quaternius.tree_8",
+      "weight": 1.0,
+      "scale_m": 0.8,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.741
+    },
+    {
+      "id": "quaternius.birch_1",
+      "weight": 1.0,
+      "scale_m": 1.6,
+      "max_slope": 0.55,
+      "biomes": [
+        5,
+        4
+      ],
+      "collision_radius": 0.34
+    },
+    {
+      "id": "quaternius.palm_1",
+      "weight": 1.0,
+      "scale_m": 1.5,
+      "max_slope": 0.4,
+      "biomes": [
+        3
+      ],
+      "collision_radius": 0.299
+    },
+    {
+      "id": "quaternius.rock_1",
+      "weight": 0.667,
+      "scale_m": 0.4,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 4.219
+    },
+    {
+      "id": "quaternius.rock_2",
+      "weight": 0.6665,
+      "scale_m": 0.25,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 5.365
+    },
+    {
+      "id": "quaternius.rock_3",
+      "weight": 0.6665,
+      "scale_m": 0.25,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 3.228
+    },
+    {
+      "id": "quaternius.rock_4",
+      "weight": 0.666667,
+      "scale_m": 0.4,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 1.856
+    },
+    {
+      "id": "quaternius.rock_5",
+      "weight": 0.666667,
+      "scale_m": 0.4,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 1.877
+    },
+    {
+      "id": "quaternius.rock_6",
+      "weight": 0.666667,
+      "scale_m": 0.4,
+      "max_slope": 1.5,
+      "biomes": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "collision_radius": 2.613
+    },
+    {
+      "id": "quaternius.bush_1",
+      "weight": 1.0,
+      "scale_m": 0.8,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 1.124
+    },
+    {
+      "id": "quaternius.bush_2",
+      "weight": 1.0,
+      "scale_m": 0.8,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 1.061
+    },
+    {
+      "id": "quaternius.bush_3",
+      "weight": 1.0,
+      "scale_m": 0.8,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0.913
+    },
+    {
+      "id": "quaternius.plant_1",
+      "weight": 1.0,
+      "scale_m": 0.3,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 1.875
+    },
+    {
+      "id": "quaternius.plant_2",
+      "weight": 1.0,
+      "scale_m": 1,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "quaternius.fern_1",
+      "weight": 1.5,
+      "scale_m": 0.15,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "quaternius.flowers_1",
+      "weight": 1.0,
+      "scale_m": 0.4,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
+    },
+    {
+      "id": "quaternius.flower_1",
+      "weight": 1.0,
+      "scale_m": 0.4,
+      "max_slope": 0.7,
+      "biomes": [
+        4,
+        5
+      ],
+      "collision_radius": 0
     }
   ]
 }

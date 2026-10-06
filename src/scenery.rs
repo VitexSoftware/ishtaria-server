@@ -16,6 +16,25 @@ pub const MODULE_M: f64 = 2.5;
 /// Castle pieces are larger so that a town wall is not made of thousands of panels.
 const WALL_M: f64 = 4.0;
 const GRAVE_M: f64 = 2.0;
+/// Metres per model unit of a weeping willow (the model stands 3.3 units tall).
+const WILLOW_M: f64 = 2.0;
+/// Graves closer than this to a willow trunk are left out.
+const WILLOW_CROWN_M: f64 = 3.0;
+/// Radius of a fortress's wall in metres, and of the area the place claims.
+pub const FORTRESS_RADIUS_M: f64 = 38.0;
+/// Metres per model unit of a stone wall segment of a fortress (it is 1.98 units long).
+const FORTRESS_WALL_M: f64 = 5.0;
+/// Ready-made Quaternius buildings of the towns: model, metres per model unit and the radius
+/// in metres that keeps neighbours clear of it.
+const LANDMARKS: [(&str, f64, f64); 7] = [
+    ("quaternius.house", 5.0, 6.0),
+    ("quaternius.fantasy_house", 2.4, 5.5),
+    ("quaternius.barracks", 4.5, 6.0),
+    ("quaternius.temple", 3.0, 6.0),
+    ("quaternius.bell_tower", 2.5, 5.5),
+    ("quaternius.watch_tower", 6.0, 5.0),
+    ("quaternius.stone_tower", 6.0, 4.5),
+];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LocalProp {
@@ -285,6 +304,7 @@ pub fn settlement(
         props.push(LocalProp::new(model, x, z, rng.between(0.0, TAU), MODULE_M));
     }
 
+    landmarks(seed, id, size, &mut props);
     if size == Size::Town {
         wall(
             &mut props,
@@ -450,7 +470,8 @@ pub fn graveyard(seed: &str, id: &str, radius: f64) -> Vec<LocalProp> {
             model,
             x,
             z,
-            facing(angle.cos(), angle.sin()) + FRAC_PI_2,
+            // A fence piece runs along its local X: turn it along the circle, front outwards.
+            facing(angle.cos(), angle.sin()),
             GRAVE_M,
         ));
     }
@@ -527,6 +548,29 @@ pub fn graveyard(seed: &str, id: &str, radius: f64) -> Vec<LocalProp> {
             GRAVE_M,
         ));
     }
+    // Weeping willows inside the fence, on both sides of the rows of graves.
+    let willows = [
+        (-radius * 0.7, -radius * 0.05),
+        (radius * 0.7, -radius * 0.05),
+        (-radius * 0.62, radius * 0.38),
+        (radius * 0.62, radius * 0.38),
+    ];
+    // A willow takes the place of the graves under its crown.
+    props.retain(|prop| {
+        !(prop.model.starts_with("graveyard.grave") || prop.model == "graveyard.cross")
+            || willows
+                .iter()
+                .all(|(x, z)| (prop.x - x).hypot(prop.z - z) > WILLOW_CROWN_M)
+    });
+    for (x, z) in willows {
+        props.push(LocalProp::new(
+            "quaternius.willow",
+            x,
+            z,
+            rng.between(0.0, TAU),
+            WILLOW_M,
+        ));
+    }
     // Pines outside the fence.
     for _ in 0..9 {
         let angle = rng.between(0.0, TAU);
@@ -542,6 +586,140 @@ pub fn graveyard(seed: &str, id: &str, radius: f64) -> Vec<LocalProp> {
             distance * angle.sin(),
             rng.between(0.0, TAU),
             GRAVE_M * 0.9,
+        ));
+    }
+    props
+}
+
+/// Ready-made buildings among the modular houses so that no two towns look alike: a temple (and
+/// a bell tower in a town), barracks, fantasy houses, towers and plain houses. They are placed
+/// with their own random stream after everything else, so the rest of the layout stays as it was.
+fn landmarks(seed: &str, id: &str, size: Size, props: &mut Vec<LocalProp>) {
+    let mut rng = Rng::new(seed, &format!("{id}:landmarks"));
+    let radius = size.radius_m();
+    let mut wanted: Vec<&str> = Vec::new();
+    let extras: &[&str] = match size {
+        Size::Hamlet => &[
+            "quaternius.house",
+            "quaternius.fantasy_house",
+            "quaternius.watch_tower",
+        ],
+        Size::Village => &[
+            "quaternius.house",
+            "quaternius.fantasy_house",
+            "quaternius.stone_tower",
+            "quaternius.watch_tower",
+        ],
+        Size::Town => &[
+            "quaternius.house",
+            "quaternius.fantasy_house",
+            "quaternius.stone_tower",
+            "quaternius.watch_tower",
+        ],
+    };
+    let count = match size {
+        Size::Hamlet => 2 + (rng.next() * 3.0) as usize,
+        Size::Village => 3 + (rng.next() * 3.0) as usize,
+        Size::Town => 7 + (rng.next() * 4.0) as usize,
+    };
+    if size != Size::Hamlet {
+        wanted.push("quaternius.temple");
+    }
+    if size == Size::Town {
+        wanted.push("quaternius.bell_tower");
+        let barracks = 1 + (rng.next() * 2.0) as usize;
+        wanted.resize(wanted.len() + barracks, "quaternius.barracks");
+    }
+    while wanted.len() < count + usize::from(size != Size::Hamlet) {
+        wanted.push(*rng.pick(extras));
+    }
+    for model in wanted {
+        let (scale, clearance) = LANDMARKS
+            .iter()
+            .find(|(name, _, _)| *name == model)
+            .map(|(_, scale, clearance)| (*scale, *clearance))
+            .expect("listed landmark");
+        // Holy buildings stand near the plaza, the others anywhere in the built-up area.
+        let (near, far) = if matches!(model, "quaternius.temple" | "quaternius.bell_tower") {
+            (16.0, radius * 0.55)
+        } else {
+            (14.0, radius - 6.0)
+        };
+        for _ in 0..400 {
+            let angle = rng.between(0.0, TAU);
+            let distance = rng.between(near, far.max(near + 1.0));
+            let (x, z) = (distance * angle.cos(), distance * angle.sin());
+            // The roads run along both axes.
+            if x.abs() < 3.5 + clearance * 0.5 || z.abs() < 3.5 + clearance * 0.5 {
+                continue;
+            }
+            let free = props.iter().all(|other| {
+                other.model == "town.road" || (other.x - x).hypot(other.z - z) >= clearance + 1.5
+            });
+            if free {
+                props.push(LocalProp::new(model, x, z, facing(-x, -z), scale));
+                break;
+            }
+        }
+    }
+}
+
+/// A fortress: a keep inside a ring of stone wall segments with a gate towards +Z and a door at
+/// the back, barracks in the yard and a tower at every other corner. Walls are 24 straight
+/// segments of [`FORTRESS_WALL_M`] around [`FORTRESS_RADIUS_M`].
+pub fn fortress(seed: &str, id: &str) -> Vec<LocalProp> {
+    let mut rng = Rng::new(seed, id);
+    let mut props = Vec::new();
+    const SIDES: usize = 24;
+    let apothem = FORTRESS_RADIUS_M * (PI / SIDES as f64).cos();
+    for k in 0..SIDES {
+        // Side k faces the angle k * 15 degrees; the gate is the side that faces +Z.
+        let angle = k as f64 * TAU / SIDES as f64;
+        let model = if k == SIDES / 4 {
+            "quaternius.castle_gate"
+        } else if k == SIDES * 3 / 4 {
+            "quaternius.wall_towers_door"
+        } else {
+            "quaternius.stone_wall_towers"
+        };
+        props.push(LocalProp::new(
+            model,
+            apothem * angle.cos(),
+            apothem * angle.sin(),
+            facing(angle.cos(), angle.sin()),
+            FORTRESS_WALL_M,
+        ));
+    }
+    let (keep, scale) = *rng.pick(&[
+        ("quaternius.castle", 14.0),
+        ("quaternius.wooden_fortress", 12.0),
+        ("quaternius.fortress", 13.0),
+    ]);
+    props.push(LocalProp::new(keep, 0.0, -4.0, 0.0, scale));
+    for side in [-1.0, 1.0] {
+        props.push(LocalProp::new(
+            "quaternius.barracks",
+            side * 22.0,
+            18.0,
+            facing(-side, -0.4),
+            4.5,
+        ));
+    }
+    // Towers at every other corner, away from the gate.
+    for k in 0..8 {
+        let angle = (k as f64 * 45.0 + 22.5).to_radians();
+        let model = if k % 2 == 0 {
+            "quaternius.stone_tower"
+        } else {
+            "quaternius.watch_tower"
+        };
+        let distance = FORTRESS_RADIUS_M - 4.5;
+        props.push(LocalProp::new(
+            model,
+            distance * angle.cos(),
+            distance * angle.sin(),
+            facing(-angle.cos(), -angle.sin()),
+            6.0,
         ));
     }
     props
@@ -576,6 +754,17 @@ pub fn colliders(prop: &LocalProp) -> Vec<Collider> {
             radius: radius * scale,
         }]
     };
+    let round_at = |dx: f64, dz: f64, radius: f64| {
+        vec![Collider {
+            x: prop.x + dx,
+            z: prop.z + dz,
+            radius: radius * scale,
+        }]
+    };
+    let offset_round = |dx: f64, dz: f64, radius: f64| {
+        let (rx, rz) = rotate(dx * scale, dz * scale, prop.yaw);
+        round_at(rx, rz, radius)
+    };
     match name {
         "town.wall" | "town.wall-window-shutters" | "town.wall-window-small" => panel(0.5),
         "castle.wall" | "castle.wall-half" => round(0.5),
@@ -588,6 +777,23 @@ pub fn colliders(prop: &LocalProp) -> Vec<Collider> {
         "graveyard.crypt-large" => round(1.1),
         "graveyard.lightpost-single" => round(0.1),
         "graveyard.pine" | "graveyard.pine-crooked" | "graveyard.pine-fall" => round(0.2),
+        "quaternius.willow" => round(0.2),
+        "quaternius.temple" => round(0.95),
+        "quaternius.bell_tower" => round(0.9),
+        "quaternius.barracks" => round(0.8),
+        "quaternius.fantasy_house" => round(1.1),
+        "quaternius.castle" | "quaternius.wooden_fortress" => round(0.95),
+        "quaternius.fortress" => round(0.7),
+        "quaternius.house" => offset_round(-0.1, -0.3, 0.65),
+        "quaternius.watch_tower" => offset_round(0.0, 0.04, 0.45),
+        "quaternius.stone_tower" => offset_round(-0.03, 0.08, 0.4),
+        // A wall segment is a row of circles along its length; its gate and door stay open.
+        "quaternius.stone_wall_towers" => (-3..=3)
+            .flat_map(|step| {
+                let (dx, dz) = rotate(f64::from(step) * 0.3 * scale, 0.0, prop.yaw);
+                round_at(dx, dz, 0.22)
+            })
+            .collect(),
         "pirate.structure" => round(0.5),
         "pirate.crate" | "pirate.barrel" | "pirate.chest" | "pirate.crate-bottles" => round(0.4),
         _ if name.starts_with("graveyard.gravestone") || name == "graveyard.cross" => round(0.2),
@@ -610,6 +816,11 @@ pub fn used_models() -> Vec<String> {
     }
     for prop in graveyard("1", "probe", 16.0) {
         models.push(prop.model);
+    }
+    for seed in 0..6 {
+        for prop in fortress(&seed.to_string(), "probe") {
+            models.push(prop.model);
+        }
     }
     models.sort();
     models.dedup();
@@ -671,7 +882,14 @@ mod tests {
         let first = settlement("42", "world:town_1", Size::Village, None);
         assert_eq!(first, settlement("42", "world:town_1", Size::Village, None));
         assert_ne!(first, settlement("43", "world:town_1", Size::Village, None));
-        let kits = ["graveyard.", "town.", "castle.", "retro.", "pirate."];
+        let kits = [
+            "graveyard.",
+            "town.",
+            "castle.",
+            "retro.",
+            "pirate.",
+            "quaternius.",
+        ];
         for model in used_models() {
             assert!(kits.iter().any(|kit| model.starts_with(kit)), "{model}");
         }
@@ -696,6 +914,74 @@ mod tests {
         };
         assert_eq!(walls(Size::Village), 0);
         assert!(walls(Size::Town) > 60);
+    }
+
+    #[test]
+    fn towns_have_ready_made_buildings_and_the_modular_layout_is_unchanged() {
+        let count = |size, model: &str| {
+            settlement("7", "x", size, None)
+                .iter()
+                .filter(|p| p.model == model)
+                .count()
+        };
+        assert_eq!(count(Size::Hamlet, "quaternius.temple"), 0);
+        assert_eq!(count(Size::Village, "quaternius.temple"), 1);
+        assert_eq!(count(Size::Town, "quaternius.temple"), 1);
+        assert_eq!(count(Size::Town, "quaternius.bell_tower"), 1);
+        assert!(count(Size::Town, "quaternius.barracks") >= 1);
+        // Everything that existed before the landmarks is exactly the same, in the same order.
+        for size in [Size::Hamlet, Size::Village, Size::Town] {
+            let all = settlement("7", "x", size, None);
+            assert!(
+                all.iter()
+                    .filter(|p| p.model.starts_with("quaternius."))
+                    .count()
+                    >= 2
+            );
+            let modular: Vec<_> = all
+                .iter()
+                .filter(|p| !p.model.starts_with("quaternius."))
+                .collect();
+            assert!(modular.iter().any(|p| p.model == "town.chimney"));
+        }
+        // No ready-made building stands on a road or inside another one.
+        for prop in settlement("9", "y", Size::Town, None)
+            .iter()
+            .filter(|p| p.model.starts_with("quaternius."))
+        {
+            assert!(prop.x.abs() > 3.5 && prop.z.abs() > 3.5, "{prop:?}");
+        }
+    }
+
+    #[test]
+    fn a_fortress_has_walls_a_gate_a_keep_and_towers() {
+        let props = fortress("1", "fort");
+        assert_eq!(props, fortress("1", "fort"));
+        let count = |model: &str| props.iter().filter(|p| p.model == model).count();
+        assert_eq!(count("quaternius.stone_wall_towers"), 22);
+        assert_eq!(count("quaternius.castle_gate"), 1);
+        assert_eq!(count("quaternius.wall_towers_door"), 1);
+        assert_eq!(count("quaternius.barracks"), 2);
+        assert_eq!(
+            count("quaternius.stone_tower") + count("quaternius.watch_tower"),
+            8
+        );
+        assert!(props.iter().any(|p| matches!(
+            p.model.as_str(),
+            "quaternius.castle" | "quaternius.wooden_fortress" | "quaternius.fortress"
+        )));
+        // The gate faces +Z and its piece is on that side of the ring.
+        let gate = props
+            .iter()
+            .find(|p| p.model == "quaternius.castle_gate")
+            .unwrap();
+        assert!(gate.z > FORTRESS_RADIUS_M * 0.9 && gate.x.abs() < 1.0);
+        // Gates leave the way open, walls and buildings do not.
+        assert!(colliders(gate).is_empty());
+        assert!(props
+            .iter()
+            .filter(|p| p.model == "quaternius.stone_wall_towers")
+            .all(|p| colliders(p).len() == 7));
     }
 
     #[test]
@@ -724,6 +1010,34 @@ mod tests {
                 .count()
                 > 8
         );
+    }
+
+    #[test]
+    fn graveyard_fence_pieces_run_along_the_circle_and_meet_end_to_end() {
+        let radius = 16.0;
+        let fence: Vec<LocalProp> = graveyard("1", "yard", radius)
+            .into_iter()
+            .filter(|p| p.model.contains("iron-fence"))
+            .collect();
+        for piece in &fence {
+            let (ax, az) = rotate(1.0, 0.0, piece.yaw);
+            let norm = piece.x.hypot(piece.z);
+            let radial = (ax * piece.x + az * piece.z) / norm;
+            assert!(
+                radial.abs() < 1e-9,
+                "a fence piece must run along the circle"
+            );
+            // The front faces away from the centre.
+            let (fx, fz) = rotate(0.0, 1.0, piece.yaw);
+            assert!((fx * piece.x + fz * piece.z) / norm > 0.999);
+        }
+        for (a, b) in fence.iter().zip(fence.iter().cycle().skip(1)) {
+            let gap = (a.x - b.x).hypot(a.z - b.z);
+            assert!(
+                (gap - GRAVE_M).abs() < 0.15,
+                "neighbours are a piece apart: {gap}"
+            );
+        }
     }
 
     #[test]
@@ -782,6 +1096,18 @@ mod tests {
             .count();
         assert_eq!(gate, 0, "the graveyard gate is open");
         assert!(yard.iter().flat_map(colliders).count() > 50);
+        let willows: Vec<_> = yard
+            .iter()
+            .filter(|p| p.model == "quaternius.willow")
+            .collect();
+        assert_eq!(willows.len(), 4, "every graveyard has weeping willows");
+        assert!(willows.iter().all(|w| colliders(w).len() == 1));
+        assert!(yard
+            .iter()
+            .filter(|p| p.model.starts_with("graveyard.grave") || p.model == "graveyard.cross")
+            .all(|p| willows
+                .iter()
+                .all(|w| (p.x - w.x).hypot(p.z - w.z) > WILLOW_CROWN_M)));
     }
 
     #[test]
@@ -803,6 +1129,7 @@ mod tests {
         let kind = std::env::var("SCENERY_KIND").unwrap_or_else(|_| "village".into());
         let props = match kind.as_str() {
             "graveyard" => graveyard("1", "yard", 16.0),
+            "fortress" => fortress("1", "fort"),
             "hamlet" => settlement("3", "x", Size::Hamlet, None),
             "town" => settlement("3", "x", Size::Town, Some(((0.0, 1.0), 120.0))),
             _ => settlement("3", "x", Size::Village, Some(((0.0, 1.0), 110.0))),
