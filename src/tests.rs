@@ -8,6 +8,7 @@ mod drinking;
 mod durability;
 mod experience;
 mod farming;
+mod guard;
 mod halls;
 mod harvest;
 mod leases;
@@ -1681,6 +1682,7 @@ fn config() -> Config {
         public_url: None,
         federation: None,
         monetization: None,
+        limits: None,
     }
 }
 

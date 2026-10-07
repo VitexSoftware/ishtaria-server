@@ -474,6 +474,14 @@ A bolt hits an animal in range like a weapon swing (drops, respawn, XP as in hun
 a ward lets only half of a creature's bite through for a minute. Scrolls are crafted at a workbench from a rare quartz crystal and are not sold.
 No spell targets other players.
 
+**Protection and observation (`src/guard.rs`, `[limits]` in `server.toml`).** A middleware limits registration and login per address
+(`auth_per_minute`, shared with logins) and all requests per address (token bucket, `requests_per_second` and `burst`), times every
+request out after 30 s, writes an access log to standard error (never query strings or tokens) and counts requests for
+`GET /metrics` (Prometheus text, loopback or `metrics_token` only). All request bodies are limited to 64 KiB unless a route sets less.
+Hashing passwords is limited to two at a time; a burst of logins waits up to 3 s for its turn before it is refused with 429.
+`tools/loadtest.py` is a small load test (see the operations documentation for a measurement). The limits live in memory and are per
+server process; a router without the guard (every test) is not limited.
+
 ## Story datadisks
 
 Graveyards generated around towns play the default track `assets/music/graveyard_midnightcem.ogg` (*Midnightcem* by Tozan, CC0;

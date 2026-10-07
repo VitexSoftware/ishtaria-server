@@ -12,6 +12,7 @@ mod experience;
 mod federation;
 mod fishing;
 mod gathering;
+mod guard;
 mod hall;
 mod land;
 mod magic;
@@ -89,6 +90,9 @@ struct Config {
     federation: Option<FederationConfig>,
     #[serde(default)]
     monetization: Option<land::MonetizationConfig>,
+    /// Rate limits, access log and metrics (`[limits]`); the defaults suit a public server.
+    #[serde(default)]
+    limits: Option<guard::LimitsConfig>,
 }
 
 #[derive(Deserialize)]
@@ -232,6 +236,7 @@ fn app(state: AppState) -> Router {
         .route("/world/objects", get(movement::world_objects))
         .route("/world/memorials", get(movement::world_memorials))
         .route("/terrain/{face}/{x}/{y}", get(sample))
+        .route("/metrics", get(guard::metrics))
         .merge(players::routes())
         .merge(federation::routes())
         .merge(gathering::routes())
@@ -247,6 +252,8 @@ fn app(state: AppState) -> Router {
         .merge(fishing::routes())
         .merge(magic::routes())
         .merge(story::api::routes())
+        // Nothing the API accepts is large; routes with their own limit keep it.
+        .layer(axum::extract::DefaultBodyLimit::max(65_536))
         .with_state(state)
 }
 
@@ -517,13 +524,18 @@ async fn main() -> Result<()> {
         env!("CARGO_PKG_VERSION"),
         listener.local_addr()?
     );
+    let guard = std::sync::Arc::new(guard::Guard::new(cfg.limits.clone().unwrap_or_default()));
+    // The extension is the outer layer, so the guard middleware finds the guard in the request.
+    let router = app(AppState {
+        pool: pool.clone(),
+        world_id,
+    })
+    .layer(axum::middleware::from_fn(guard::middleware))
+    .layer(Extension(guard))
+    .layer(Extension(args.solar_offset_seconds));
     axum::serve(
         listener,
-        app(AppState {
-            pool: pool.clone(),
-            world_id,
-        })
-        .layer(Extension(args.solar_offset_seconds)),
+        router.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
         tokio::select! { () = shutdown() => {}, () = shutdown_watch => {} }

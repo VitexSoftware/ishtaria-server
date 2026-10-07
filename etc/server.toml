@@ -12,3 +12,13 @@ database_url = "postgresql:///ishtaria?host=/var/run/postgresql"
 # [federation]
 # policy = "approve"            # closed | approve (operator approves each pact) | open
 # allow_private_peers = false   # true only for development networks
+
+# Protection of a public server (all optional; these are the defaults).
+# [limits]
+# auth_per_minute = 10          # registrations + logins per minute from one address
+# requests_per_second = 100     # sustained requests per second from one address ...
+# burst = 300                   # ... and the burst allowed on top of it
+# trust_proxy = false           # true ONLY behind your own reverse proxy: take the client address from
+#                               # the last entry of X-Forwarded-For
+# access_log = "errors"         # "errors" (status >= 400 and slow requests), "all" or "off"
+# metrics_token = "long-random" # lets a remote scraper read /metrics; without it only loopback may

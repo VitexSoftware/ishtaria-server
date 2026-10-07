@@ -18,6 +18,7 @@ use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::FromRow;
+use std::time::Duration;
 
 static PASSWORD_JOBS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
@@ -205,9 +206,13 @@ fn valid_character(character: &str) -> bool {
 }
 
 async fn password_job(password: String, stored: Option<String>) -> Result<String, Error> {
-    let permit = PASSWORD_JOBS
-        .try_acquire()
-        .map_err(|_| Error::Status(StatusCode::TOO_MANY_REQUESTS, "authentication busy"))?;
+    // Hashing a password is deliberately expensive, so only a few run at a time. A burst of logins
+    // (the start of an event) waits its turn for a moment; only a server that stays busy refuses.
+    let busy = || Error::Status(StatusCode::TOO_MANY_REQUESTS, "authentication busy");
+    let permit = tokio::time::timeout(Duration::from_secs(3), PASSWORD_JOBS.acquire())
+        .await
+        .map_err(|_| busy())?
+        .map_err(|_| busy())?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let engine = Argon2::default();
