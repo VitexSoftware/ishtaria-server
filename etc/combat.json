@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "max_defense_percent": 60,
+  "block_damage_factor": 0.25,
+  "shield_wear": 2,
+  "armor_wear": 1,
+  "armor": {
+    "armor_leather": {"slot": "body", "defense": 15},
+    "armor_golden": {"slot": "body", "defense": 25},
+    "armor_metal": {"slot": "body", "defense": 35},
+    "glove": {"slot": "hands", "defense": 5}
+  },
+  "fierce": {
+    "animal.wolf": {"damage": 8, "chance": 0.7},
+    "animal.husky": {"damage": 5, "chance": 0.5},
+    "animal.fox": {"damage": 3, "chance": 0.5},
+    "animal.stag": {"damage": 5, "chance": 0.4},
+    "animal.bull": {"damage": 10, "chance": 0.6}
+  }
+}

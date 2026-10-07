@@ -377,6 +377,43 @@ pub(super) enum DamageCause {
     Fall,
     FallingTree,
     HostilePlayer,
+    Creature,
+}
+
+impl DamageCause {
+    fn name(self) -> &'static str {
+        match self {
+            DamageCause::Disease => "disease",
+            DamageCause::Fall => "fall",
+            DamageCause::FallingTree => "falling_tree",
+            DamageCause::HostilePlayer => "hostile_player",
+            DamageCause::Creature => "creature",
+        }
+    }
+}
+
+/// Hurts a living character that the caller has locked in `transaction`. Returns whether
+/// the damage killed them; death is permanent and leaves a grave like any other.
+pub(super) async fn hurt(
+    transaction: &mut Transaction<'_, Postgres>,
+    id: i64,
+    damage: i32,
+    cause: DamageCause,
+) -> Result<bool, Error> {
+    if !(1..=100).contains(&damage) {
+        return Err(Error::Status(StatusCode::BAD_REQUEST, "invalid damage"));
+    }
+    let health: i32 = sqlx::query_scalar(
+        "UPDATE players SET health = greatest(0, health - $2) WHERE id = $1 RETURNING health",
+    )
+    .bind(id)
+    .bind(damage)
+    .fetch_one(&mut **transaction)
+    .await?;
+    if health == 0 {
+        die(transaction, id, cause.name()).await?;
+    }
+    Ok(health == 0)
 }
 
 #[allow(dead_code)]
@@ -395,17 +432,7 @@ pub(super) async fn apply_damage(
         if player.starving {
             die(&mut transaction, id, "starvation").await?;
         } else {
-            let health: i32 = sqlx::query_scalar("UPDATE players SET health = greatest(0, health - $2) WHERE id = $1 RETURNING health")
-                .bind(id).bind(damage).fetch_one(&mut *transaction).await?;
-            if health == 0 {
-                let cause = match cause {
-                    DamageCause::Disease => "disease",
-                    DamageCause::Fall => "fall",
-                    DamageCause::FallingTree => "falling_tree",
-                    DamageCause::HostilePlayer => "hostile_player",
-                };
-                die(&mut transaction, id, cause).await?;
-            }
+            hurt(&mut transaction, id, damage, cause).await?;
         }
     }
     transaction.commit().await?;

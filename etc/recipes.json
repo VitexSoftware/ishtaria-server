@@ -148,6 +148,460 @@
         }
       ],
       "xp": 5
+    },
+    {
+      "id": "smelt_iron_pine",
+      "station": "campfire",
+      "inputs": [
+        {
+          "item": "iron_ore",
+          "quantity": 2
+        },
+        {
+          "item": "pine_wood",
+          "quantity": 5
+        }
+      ],
+      "outputs": [
+        {
+          "item": "iron_ingot",
+          "quantity": 1
+        }
+      ],
+      "xp": 4
+    },
+    {
+      "id": "smelt_iron_oak",
+      "station": "campfire",
+      "inputs": [
+        {
+          "item": "iron_ore",
+          "quantity": 2
+        },
+        {
+          "item": "oak_wood",
+          "quantity": 5
+        }
+      ],
+      "outputs": [
+        {
+          "item": "iron_ingot",
+          "quantity": 1
+        }
+      ],
+      "xp": 4
+    },
+    {
+      "id": "make_gloves",
+      "inputs": [
+        {
+          "item": "hide",
+          "quantity": 2
+        }
+      ],
+      "outputs": [
+        {
+          "item": "glove",
+          "quantity": 1
+        }
+      ],
+      "xp": 6
+    },
+    {
+      "id": "make_leather_armor",
+      "inputs": [
+        {
+          "item": "hide",
+          "quantity": 8
+        }
+      ],
+      "outputs": [
+        {
+          "item": "armor_leather",
+          "quantity": 1
+        }
+      ],
+      "xp": 12
+    },
+    {
+      "id": "make_metal_armor",
+      "station": "anvil",
+      "inputs": [
+        {
+          "item": "iron_ingot",
+          "quantity": 10
+        }
+      ],
+      "outputs": [
+        {
+          "item": "armor_metal",
+          "quantity": 1
+        }
+      ],
+      "xp": 30
+    },
+    {
+      "id": "make_dagger",
+      "station": "anvil",
+      "inputs": [
+        {
+          "item": "iron_ingot",
+          "quantity": 2
+        }
+      ],
+      "outputs": [
+        {
+          "item": "dagger",
+          "quantity": 1
+        }
+      ],
+      "xp": 8
+    },
+    {
+      "id": "make_spear",
+      "station": "anvil",
+      "inputs": [
+        {
+          "item": "iron_ingot",
+          "quantity": 2
+        },
+        {
+          "item": "oak_wood",
+          "quantity": 5
+        }
+      ],
+      "outputs": [
+        {
+          "item": "spear",
+          "quantity": 1
+        }
+      ],
+      "xp": 10
+    },
+    {
+      "id": "make_sword_2",
+      "station": "anvil",
+      "inputs": [
+        {
+          "item": "iron_ingot",
+          "quantity": 4
+        },
+        {
+          "item": "pine_wood",
+          "quantity": 5
+        }
+      ],
+      "outputs": [
+        {
+          "item": "sword_2",
+          "quantity": 1
+        }
+      ],
+      "xp": 18
+    },
+    {
+      "id": "make_claymore",
+      "station": "anvil",
+      "inputs": [
+        {
+          "item": "iron_ingot",
+          "quantity": 8
+        }
+      ],
+      "outputs": [
+        {
+          "item": "claymore",
+          "quantity": 1
+        }
+      ],
+      "xp": 30
+    },
+    {
+      "id": "make_shield_round",
+      "inputs": [
+        {
+          "item": "oak_plank",
+          "quantity": 6
+        },
+        {
+          "item": "iron_ingot",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "shield_round",
+          "quantity": 1
+        }
+      ],
+      "xp": 10
+    },
+    {
+      "id": "make_shield_heater",
+      "station": "anvil",
+      "inputs": [
+        {
+          "item": "iron_ingot",
+          "quantity": 5
+        }
+      ],
+      "outputs": [
+        {
+          "item": "shield_heater",
+          "quantity": 1
+        }
+      ],
+      "xp": 18
+    },
+    {
+      "id": "cook_meat",
+      "station": "campfire",
+      "inputs": [
+        {
+          "item": "raw_meat",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "cooked_meat",
+          "quantity": 1
+        }
+      ],
+      "xp": 2
+    },
+    {
+      "id": "cook_fish",
+      "station": "campfire",
+      "inputs": [
+        {
+          "item": "fish",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "cooked_fish",
+          "quantity": 1
+        }
+      ],
+      "xp": 2
+    },
+    {
+      "id": "make_campfire",
+      "inputs": [
+        {
+          "item": "stone",
+          "quantity": 4
+        },
+        {
+          "item": "pine_wood",
+          "quantity": 5
+        }
+      ],
+      "outputs": [
+        {
+          "item": "campfire",
+          "quantity": 1
+        }
+      ],
+      "xp": 6
+    },
+    {
+      "id": "make_bedroll",
+      "inputs": [
+        {
+          "item": "hide",
+          "quantity": 4
+        }
+      ],
+      "outputs": [
+        {
+          "item": "bedroll",
+          "quantity": 1
+        }
+      ],
+      "xp": 6
+    },
+    {
+      "id": "make_workbench",
+      "inputs": [
+        {
+          "item": "pine_plank",
+          "quantity": 8
+        }
+      ],
+      "outputs": [
+        {
+          "item": "workbench",
+          "quantity": 1
+        }
+      ],
+      "xp": 10
+    },
+    {
+      "id": "make_anvil",
+      "station": "campfire",
+      "inputs": [
+        {
+          "item": "iron_ingot",
+          "quantity": 6
+        },
+        {
+          "item": "stone_block",
+          "quantity": 4
+        }
+      ],
+      "outputs": [
+        {
+          "item": "anvil",
+          "quantity": 1
+        }
+      ],
+      "xp": 20
+    },
+    {
+      "id": "make_tent",
+      "station": "workbench",
+      "inputs": [
+        {
+          "item": "hide",
+          "quantity": 10
+        },
+        {
+          "item": "pine_plank",
+          "quantity": 4
+        }
+      ],
+      "outputs": [
+        {
+          "item": "tent",
+          "quantity": 1
+        }
+      ],
+      "xp": 14
+    },
+    {
+      "id": "make_fence",
+      "station": "workbench",
+      "inputs": [
+        {
+          "item": "pine_plank",
+          "quantity": 3
+        }
+      ],
+      "outputs": [
+        {
+          "item": "fence",
+          "quantity": 4
+        }
+      ],
+      "xp": 4
+    },
+    {
+      "id": "make_fishing_rod",
+      "station": "workbench",
+      "inputs": [
+        {
+          "item": "pine_wood",
+          "quantity": 3
+        },
+        {
+          "item": "hide",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "fishing_rod",
+          "quantity": 1
+        }
+      ],
+      "xp": 6
+    },
+    {
+      "id": "make_scroll_refresh",
+      "station": "workbench",
+      "inputs": [
+        {
+          "item": "quartz_crystal",
+          "quantity": 1
+        },
+        {
+          "item": "pine_wood",
+          "quantity": 2
+        }
+      ],
+      "outputs": [
+        {
+          "item": "scroll_refresh",
+          "quantity": 1
+        }
+      ],
+      "xp": 8
+    },
+    {
+      "id": "make_scroll_firebolt",
+      "station": "workbench",
+      "inputs": [
+        {
+          "item": "quartz_crystal",
+          "quantity": 1
+        },
+        {
+          "item": "stone",
+          "quantity": 2
+        }
+      ],
+      "outputs": [
+        {
+          "item": "scroll_firebolt",
+          "quantity": 1
+        }
+      ],
+      "xp": 12
+    },
+    {
+      "id": "make_scroll_heal",
+      "station": "workbench",
+      "inputs": [
+        {
+          "item": "quartz_crystal",
+          "quantity": 2
+        },
+        {
+          "item": "hide",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "scroll_heal",
+          "quantity": 1
+        }
+      ],
+      "xp": 16
+    },
+    {
+      "id": "make_scroll_ward",
+      "station": "workbench",
+      "inputs": [
+        {
+          "item": "quartz_crystal",
+          "quantity": 2
+        },
+        {
+          "item": "iron_ingot",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "scroll_ward",
+          "quantity": 1
+        }
+      ],
+      "xp": 20
     }
   ]
 }

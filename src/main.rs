@@ -1,20 +1,27 @@
 mod atmosphere;
+mod chat;
+mod combat;
 mod creatures;
 mod durability;
 mod environment;
 mod experience;
 mod federation;
+mod fishing;
 mod gathering;
 mod hall;
 mod land;
+mod magic;
 mod movement;
+mod placing;
 mod players;
 mod portals;
 mod scenery;
+mod shops;
 mod social;
 mod story;
 mod survival;
 mod terrain;
+mod trade;
 
 use atmosphere::Atmosphere;
 
@@ -229,6 +236,12 @@ fn app(state: AppState) -> Router {
         .merge(land::routes())
         .merge(hall::routes())
         .merge(social::routes())
+        .merge(chat::routes())
+        .merge(shops::routes())
+        .merge(trade::routes())
+        .merge(placing::routes())
+        .merge(fishing::routes())
+        .merge(magic::routes())
         .merge(story::api::routes())
         .with_state(state)
 }

@@ -1,16 +1,21 @@
 use super::*;
 
 mod building;
+mod chat;
+mod combat;
 mod creatures;
 mod drinking;
 mod durability;
 mod experience;
+mod farming;
 mod halls;
 mod harvest;
 mod leases;
+mod magic;
 mod pacts;
 mod social;
 mod story;
+mod trade;
 use axum::{body::Body, http::Request};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
@@ -110,6 +115,9 @@ async fn new_player_gold_is_persistent_and_nonnegative(pool: PgPool) {
 const SMALL_MAP: &[u8] = b"P5\n6 1\n255\n\x0a\x20\x00\x80\xfe\xff";
 
 async fn initialize_spawn_world(pool: &PgPool) -> i64 {
+    // Every test has a database of its own but the same world id: a story cached by an
+    // earlier test must not be taken for this world's.
+    crate::story::world::reset_cache().await;
     let mut pgm = b"P5\n96 16\n255\n".to_vec();
     pgm.extend(vec![144; 16 * 16 * 6]);
     initialize(pool, &config(), Some((&pgm, 42))).await.unwrap()
@@ -119,6 +127,7 @@ async fn initialize_spawn_world(pool: &PgPool) -> i64 {
 #[ignore = "requires DATABASE_URL pointing to PostgreSQL with CREATEDB permission"]
 async fn unsafe_spawn_rolls_back_registration(pool: PgPool) {
     let _auth_test = AUTH_TESTS.acquire().await.unwrap();
+    crate::story::world::reset_cache().await;
     let world_id = initialize(&pool, &config(), None).await.unwrap();
     let router = app(AppState {
         pool: pool.clone(),
@@ -480,10 +489,19 @@ async fn movement_is_persistent_bounded_and_replay_safe(pool: PgPool) {
     assert_eq!(blocked.status(), StatusCode::OK);
     let blocked = response_json(blocked).await;
     assert_eq!(blocked["moving"], false);
-    assert_eq!(
-        blocked["position"],
-        serde_json::json!({"x": start[0], "y": start[1], "z": start[2], "sequence": "2", "airborne": false, "on_object": false})
-    );
+    // The blocked character stays where they were, to within a micrometre: the server may
+    // differ from the test's own arithmetic in the last binary digit.
+    for (axis, name) in ["x", "y", "z"].into_iter().enumerate() {
+        let reported = blocked["position"][name].as_f64().unwrap();
+        assert!(
+            (reported - start[axis]).abs() < 1e-6,
+            "{name}: {reported} instead of {}",
+            start[axis]
+        );
+    }
+    assert_eq!(blocked["position"]["sequence"], "2");
+    assert_eq!(blocked["position"]["airborne"], false);
+    assert_eq!(blocked["position"]["on_object"], false);
     let profile = response_json(
         player_request(
             &router,
@@ -1718,7 +1736,7 @@ async fn persistence_and_conflicting_imports(pool: PgPool) {
         versions,
         [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-            25, 26, 27, 28, 29, 30, 31, 32, 33, 34
+            25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39
         ]
     );
 }

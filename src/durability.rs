@@ -49,7 +49,7 @@ pub(super) async fn wear(
             .bind(item_id)
             .execute(&mut **transaction)
             .await?;
-        sqlx::query("UPDATE player_equipment SET hand = CASE WHEN hand = $2 THEN NULL ELSE hand END, offhand = CASE WHEN offhand = $2 THEN NULL ELSE offhand END WHERE player_id = $1")
+        sqlx::query("UPDATE player_equipment SET hand = CASE WHEN hand = $2 THEN NULL ELSE hand END, offhand = CASE WHEN offhand = $2 THEN NULL ELSE offhand END, body = CASE WHEN body = $2 THEN NULL ELSE body END, hands = CASE WHEN hands = $2 THEN NULL ELSE hands END WHERE player_id = $1")
             .bind(player_id).bind(item_id).execute(&mut **transaction).await?;
     } else {
         sqlx::query("UPDATE player_inventory SET quantity = quantity - 1, durability = NULL WHERE player_id = $1 AND item_id = $2")

@@ -272,6 +272,8 @@ struct Event {
     kind: String,
     subject: String,
     level: Option<i32>,
+    /// The text of a `say` or `whisper`; `subject` is then the sender.
+    body: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -302,10 +304,10 @@ async fn events(
         .bind(query.after)
         .execute(&mut *transaction)
         .await?;
-    sqlx::query(&format!("DELETE FROM player_events WHERE created_at < now() - make_interval(secs => {EVENT_LIFETIME_SECONDS})"))
+    sqlx::query(&format!("DELETE FROM player_events WHERE (expires_at IS NULL AND created_at < now() - make_interval(secs => {EVENT_LIFETIME_SECONDS})) OR expires_at < now()"))
         .execute(&mut *transaction)
         .await?;
-    let events: Vec<Event> = sqlx::query_as(&format!("SELECT id, kind, subject, level FROM player_events WHERE recipient_id = $1 AND id > $2 ORDER BY id LIMIT {MAX_EVENTS}"))
+    let events: Vec<Event> = sqlx::query_as(&format!("SELECT id, kind, subject, level, body FROM player_events WHERE recipient_id = $1 AND id > $2 ORDER BY id LIMIT {MAX_EVENTS}"))
         .bind(player_id).bind(query.after).fetch_all(&mut *transaction).await?;
     transaction.commit().await?;
     let last = events.last().map_or(query.after, |event| event.id);

@@ -1,0 +1,24 @@
+# The trader at the market stall of every town. The goods and prices are in shops.json (shop
+# `general`); this dialogue is only the greeting, the shop itself is a panel of the client.
+dialogue:
+  id: trader
+  status: reviewed
+  start: greet
+  nodes:
+    greet:
+      text_key: trader.greet
+      choices:
+        - {text_key: trader.leave}
+strings:
+  en:
+    trader.greet: "Fresh goods and fair prices! I buy what you gather and sell what you need."
+    trader.leave: Maybe later.
+    trader.name: Trader
+    trader.bio: Buys raw materials and hunting spoils, sells food and basic tools.
+    market.name: Market
+  cs:
+    trader.greet: "Čerstvé zboží a poctivé ceny! Skupuji, co nasbíráte, a prodávám, co potřebujete."
+    trader.leave: Možná později.
+    trader.name: Obchodník
+    trader.bio: Skupuje suroviny a kořist z lovu, prodává jídlo a základní nářadí.
+    market.name: Trh

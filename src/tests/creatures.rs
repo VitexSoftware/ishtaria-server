@@ -25,7 +25,10 @@ async fn creature_request(router: &Router, path: &str, token: &str, id: &str) ->
 }
 
 /// A land animal of the generated world and where it stands right now.
-fn animal_near(terrain: &movement::WalkingTerrain, wanted: Option<&str>) -> movement::WorldObject {
+pub(super) fn animal_near(
+    terrain: &movement::WalkingTerrain,
+    wanted: Option<&str>,
+) -> movement::WorldObject {
     for step in 0..400 {
         let angle = f64::from(step) * 0.0003;
         let place = movement::unit([angle.cos(), angle.sin(), 0.1]);

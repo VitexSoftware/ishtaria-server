@@ -371,6 +371,10 @@ async fn configured_items_exist(pool: PgPool) {
     for item in crate::gathering::configured_items()
         .into_iter()
         .chain(crate::creatures::configured_items())
+        .chain(crate::combat::configured_items())
+        .chain(crate::shops::configured_items())
+        .chain(crate::placing::configured_items())
+        .chain(crate::magic::configured_items())
     {
         assert!(
             known.contains(&item),

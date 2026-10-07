@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "reach_m": 4.0,
+  "station_reach_m": 4.0,
+  "list_radius_m": 150.0,
+  "max_placed_per_player": 40,
+  "max_crops_per_player": 60,
+  "things": {
+    "campfire": {"model": "survival.campfire-pit", "scale": 1.0, "spacing_m": 1.2, "station": "campfire"},
+    "bedroll": {"model": "survival.bedroll", "scale": 1.0, "spacing_m": 1.5},
+    "workbench": {"model": "survival.workbench", "scale": 1.0, "spacing_m": 1.8, "station": "workbench"},
+    "anvil": {"model": "survival.workbench-anvil", "scale": 1.0, "spacing_m": 1.5, "station": "anvil"},
+    "tent": {"model": "survival.tent", "scale": 1.0, "spacing_m": 3.0},
+    "fence": {"model": "survival.fence", "scale": 1.0, "spacing_m": 0.6}
+  },
+  "crops": {
+    "seed_carrot": {"kind": "crop_carrot", "model": "food.carrot", "produce": "carrot", "min": 2, "max": 4, "grow_minutes": 20},
+    "seed_corn": {"kind": "crop_corn", "model": "food.corn", "produce": "corn", "min": 2, "max": 3, "grow_minutes": 30},
+    "seed_cabbage": {"kind": "crop_cabbage", "model": "food.cabbage", "produce": "cabbage", "min": 1, "max": 3, "grow_minutes": 25},
+    "seed_pumpkin": {"kind": "crop_pumpkin", "model": "food.pumpkin", "produce": "pumpkin", "min": 1, "max": 2, "grow_minutes": 40}
+  },
+  "crop_spacing_m": 0.8,
+  "fishing": {
+    "water_reach_m": 6.0,
+    "cooldown_ms": 3000,
+    "stamina_cost": 2,
+    "catch_chance": 0.55,
+    "catch": "fish"
+  }
+}

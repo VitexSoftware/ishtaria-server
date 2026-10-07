@@ -22,6 +22,7 @@ use std::path::PathBuf;
 const DEFAULT_COUNT: usize = 36;
 const SPACING_M: f64 = 120_000.0;
 const SHIPWRIGHT: &str = include_str!("../../etc/shipwright.yaml");
+const TRADER: &str = include_str!("../../etc/trader.yaml");
 const GATE_GUARD: &str = include_str!("../../etc/gate_guard.yaml");
 /// Directory with the files the server itself ships (override with `ISHTARIA_ASSETS_DIR`).
 const DEFAULT_ASSETS_DIR: &str = "/usr/share/ishtaria-server";
@@ -429,6 +430,7 @@ pub fn finish(
 ) -> Result<Built> {
     let mut built = Built::default();
     let mut harbours: Vec<(usize, Placed)> = Vec::new();
+    let mut markets: Vec<(usize, Placed)> = Vec::new();
     let anchors = story.anchors.clone();
     for (index, anchor) in anchors.iter().enumerate() {
         let (Some(scenery), Some(site)) = (&anchor.place.scenery, sites.get(&anchor.id)) else {
@@ -442,6 +444,16 @@ pub fn finish(
                     .as_deref()
                     .and_then(Size::parse)
                     .unwrap_or(Size::Village);
+                // The market stall of the plaza, where the trader stands.
+                let stall = placement::offset(site.direction, 6.5, 0.8);
+                markets.push((
+                    index,
+                    Placed {
+                        id: format!("markets:market_{index:02}"),
+                        direction: stall,
+                        height_m: ground.height(stall).max(0.0),
+                    },
+                ));
                 let sea = placement::sea_toward(ground, site.direction, placement::COAST_M);
                 built.farms.push(crate::movement::FarmSite {
                     id: anchor.id.clone(),
@@ -496,6 +508,52 @@ pub fn finish(
             }
             _ => {}
         }
+    }
+    if !markets.is_empty() {
+        let file: DialogueFile = serde_yaml::from_str(TRADER)?;
+        let mut disk = empty_disk(manifest("markets", "Markets"));
+        disk.dialogues.push(file.dialogue);
+        for (language, table) in file.strings {
+            disk.strings.entry(language).or_default().extend(table);
+        }
+        for (index, site) in &markets {
+            let local = format!("market_{index:02}");
+            disk.places.push(Place {
+                id: local.clone(),
+                kind: "landmark".to_owned(),
+                name_key: "market.name".to_owned(),
+                parent: None,
+                radius_m: Some(8.0),
+                spacing_m: None,
+                spawn: false,
+                at: None,
+                music: None,
+                music_radius_m: None,
+                scenery: None,
+                requires: Requires::default(),
+            });
+            disk.npcs.push(Npc {
+                id: format!("trader_{index:02}"),
+                name_key: "trader.name".to_owned(),
+                place: local,
+                character: super::disk::Character {
+                    pack: "survivors".to_owned(),
+                    skin: "survivorMaleB".to_owned(),
+                    model: None,
+                },
+                dialogue: "trader".to_owned(),
+                bio_key: Some("trader.bio".to_owned()),
+                portrait: None,
+                tags: vec!["shop".to_owned(), "shop:general".to_owned()],
+            });
+            sites.insert(site.id.clone(), site.clone());
+        }
+        disk.sha256 = format!(
+            "{:x}",
+            Sha256::digest(format!("markets:{}", markets.len()).as_bytes())
+        );
+        story.add_disk(disk)?;
+        story.check()?;
     }
     if !harbours.is_empty() {
         let file: DialogueFile = serde_yaml::from_str(SHIPWRIGHT)?;

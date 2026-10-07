@@ -51,6 +51,9 @@ pub struct NpcDescriptor {
     /// URL path of the portrait, when the NPC has one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portrait: Option<String>,
+    /// The shop of etc/shops.json this NPC keeps (tag `shop:<id>`), when it is a merchant.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shop: Option<String>,
 }
 
 /// A region around a place where a track plays; clients fade it in and out by distance.
@@ -370,6 +373,11 @@ pub fn npc_descriptors(
             yaw: sample(2) * std::f64::consts::TAU,
             scale_m: 1.8,
             portrait: npc.portrait.as_deref().map(media_url),
+            shop: npc
+                .tags
+                .iter()
+                .find_map(|tag| tag.strip_prefix("shop:"))
+                .map(str::to_owned),
         });
     }
     npcs

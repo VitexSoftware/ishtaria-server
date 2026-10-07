@@ -33,6 +33,9 @@ pub(super) struct Stats {
     stamina: i32,
     food: i32,
     water: i32,
+    /// Mana now (it regenerates by the clock) and its maximum.
+    mana: i32,
+    mana_max: i32,
     level: i32,
     experience: i64,
     /// Experience at which the current level began, and at which the next one does.
@@ -56,7 +59,7 @@ pub(super) async fn stats(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     id: i64,
 ) -> Result<Stats, Error> {
-    let stats: Stats = sqlx::query_as("SELECT coalesce((SELECT quantity FROM player_inventory WHERE player_id = players.id AND item_id = 'gold'), 0)::text AS gold, health, stamina, greatest(0, least(100, ceil(100 * (1 - extract(epoch FROM (now() - last_ate_at)) / 604800))))::integer AS food, water, level, experience, (100::bigint * level + 10 * greatest(0, floor(extract(epoch FROM (coalesce(died_at, now()) - created_at)) / 86400))::bigint)::text AS score FROM players WHERE id = $1")
+    let stats: Stats = sqlx::query_as(&format!("SELECT coalesce((SELECT quantity FROM player_inventory WHERE player_id = players.id AND item_id = 'gold'), 0)::text AS gold, health, stamina, greatest(0, least(100, ceil(100 * (1 - extract(epoch FROM (now() - last_ate_at)) / 604800))))::integer AS food, water, floor({mana})::integer AS mana, {mana_max} AS mana_max, level, experience, (100::bigint * level + 10 * greatest(0, floor(extract(epoch FROM (coalesce(died_at, now()) - created_at)) / 86400))::bigint)::text AS score FROM players WHERE id = $1", mana = super::magic::mana_now_sql(), mana_max = super::magic::mana_max()))
         .bind(id).fetch_one(&mut **transaction).await?;
     Ok(stats.with_progress())
 }
@@ -85,6 +88,11 @@ pub(super) struct Equipment {
     hand: Option<String>,
     /// The shield, if any.
     offhand: Option<String>,
+    /// The armour worn on the body and on the hands.
+    body: Option<String>,
+    hands: Option<String>,
+    /// Percent of the damage that the worn armour takes away.
+    defense: i32,
     /// True while a block lasts.
     blocking: bool,
 }
@@ -235,16 +243,28 @@ pub(super) async fn profile(state: &AppState, player_id: i64) -> Result<Player, 
         transaction.commit().await?;
         return Err(Error::Obituary(notice));
     }
-    let mut player: Player = sqlx::query_as("SELECT username, character, flag, coalesce((SELECT quantity FROM player_inventory WHERE player_id = players.id AND item_id = 'gold'), 0)::text AS gold, health, stamina, greatest(0, least(100, ceil(100 * (1 - extract(epoch FROM (now() - last_ate_at)) / 604800))))::integer AS food, water, level, experience, (100::bigint * level + 10 * greatest(0, floor(extract(epoch FROM (coalesce(died_at, now()) - created_at)) / 86400))::bigint)::text AS score FROM players WHERE id = $1 AND world_id = $2 FOR SHARE")
+    let mut player: Player = sqlx::query_as(&format!("SELECT username, character, flag, coalesce((SELECT quantity FROM player_inventory WHERE player_id = players.id AND item_id = 'gold'), 0)::text AS gold, health, stamina, greatest(0, least(100, ceil(100 * (1 - extract(epoch FROM (now() - last_ate_at)) / 604800))))::integer AS food, water, floor({mana})::integer AS mana, {mana_max} AS mana_max, level, experience, (100::bigint * level + 10 * greatest(0, floor(extract(epoch FROM (coalesce(died_at, now()) - created_at)) / 86400))::bigint)::text AS score FROM players WHERE id = $1 AND world_id = $2 FOR SHARE", mana = super::magic::mana_now_sql(), mana_max = super::magic::mana_max()))
         .bind(player_id).bind(state.world_id).fetch_one(&mut *transaction).await?;
     player.stats = player.stats.with_progress();
     player.life = Some(super::survival::life(&mut transaction, player_id).await?);
     player.inventory = Some(super::survival::inventory(&mut transaction, player_id).await?);
     player.position = sqlx::query_as("SELECT position_x AS x, position_y AS y, position_z AS z, movement_sequence::text AS sequence, movement_airborne AS airborne, movement_support AS on_object FROM players WHERE id = $1 AND position_x IS NOT NULL")
         .bind(player_id).fetch_optional(&mut *transaction).await?;
-    let held: Option<(Option<String>, Option<String>)> = sqlx::query_as("SELECT CASE WHEN EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = hand) THEN hand END, CASE WHEN EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = offhand) THEN offhand END FROM player_equipment WHERE player_id = $1")
+    #[allow(clippy::type_complexity)]
+    let held: Option<(Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as("SELECT CASE WHEN EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = hand) THEN hand END, CASE WHEN EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = offhand) THEN offhand END, CASE WHEN EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = body) THEN body END, CASE WHEN EXISTS (SELECT 1 FROM player_inventory WHERE player_id = $1 AND item_id = hands) THEN hands END FROM player_equipment WHERE player_id = $1")
         .bind(player_id).fetch_optional(&mut *transaction).await?;
-    (player.equipment.hand, player.equipment.offhand) = held.unwrap_or_default();
+    (
+        player.equipment.hand,
+        player.equipment.offhand,
+        player.equipment.body,
+        player.equipment.hands,
+    ) = held.unwrap_or_default();
+    player.equipment.defense = [&player.equipment.body, &player.equipment.hands]
+        .into_iter()
+        .flatten()
+        .filter_map(|item| super::combat::armor(item))
+        .map(|armor| armor.defense)
+        .sum();
     player.equipment.blocking = player.equipment.offhand.is_some()
         && sqlx::query_scalar(
             "SELECT coalesce(blocked_until > now(), false) FROM players WHERE id = $1",

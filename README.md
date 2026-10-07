@@ -2,7 +2,7 @@
 
 Authoritative world server of Ishtaria: one planet, its simulation, persistence and the federation endpoint that links worlds through portals.
 
-**Status:** PostgreSQL-backed world identity, heightmaps, characters, inventory, eating, permanent death, memorial APIs and server-authoritative walking and jumping onto scenery. General rigid-body physics, combat, travel tickets and cross-world play are not implemented yet; portals are built alone and linked with portals of other worlds by share links.
+**Status:** PostgreSQL-backed world identity, heightmaps, characters, inventory, eating, permanent death, memorial APIs and server-authoritative walking and jumping onto scenery. General rigid-body physics, free-roaming enemies and player-versus-player combat, travel tickets and cross-world play are not implemented yet; portals are built alone and linked with portals of other worlds by share links.
 
 ## Running Locally
 
@@ -435,6 +435,44 @@ Land animals walk (their route is a pure function of id and time, sent as `wande
 after several swings (`etc/creatures.json`; the animal returns later, stored in `world_object_state`);
 `POST /players/me/milk` lets a character drink from a cow (30 water, ten minutes per cow, `creature_milked`,
 migration `0034_creatures.sql`).
+
+**Combat (migration `0036_combat.sql`, `src/combat.rs`, `etc/combat.json`).** A dangerous animal (wolf, husky, fox, stag, bull)
+may bite back after a hit it survives; the blow is cut by worn armour (`body`: `armor_leather`/`armor_golden`/`armor_metal`,
+`hands`: `glove`; at most 60 %) and to a quarter by a raised shield, both wear, and a killing blow is a permanent death
+(cause `creature`, reply 410 with the obituary). Armour is put on with `POST /players/me/equip` and taken off with
+`DELETE /players/me/equip?slot=body|hands`; the profile's `equipment` shows `body`, `hands` and `defense`. Hunting drops hides, iron
+ore is smelted to ingots (`smelt_iron_*`, pickaxe as an interim tool until crafting stations exist) and weapons, armour and
+shields are crafted from ingots and hides (`etc/recipes.json`). Animals still do not chase; players cannot hurt players.
+
+**Trading (migration `0037_trade_and_shops.sql`, `src/shops.rs`, `src/trade.rs`, `etc/shops.json`).**
+An NPC tagged `shop:<id>` is a merchant; every generated town has a trader at its plaza (`etc/trader.yaml`, tag `shop:general`) and
+a datadisk can tag any NPC. `GET /shops/{npc_id}` lists what the shop sells and buys (character must stand within 6 m),
+`POST /shops/{npc_id}/buy|sell` (`{"item_id", "quantity"}`) exchange items for gold in one transaction. Selling pays less than buying
+costs, and one character can sell at most `daily_sell_limit_gold` (400) a day to a shop (`shop_sales`), which bounds the gold the
+world creates. Between players there is one open exchange at a time: `POST /trades {"with": name}` (both within 10 m),
+`GET|DELETE /trades/current`, `PUT /trades/current/offer {"items": [{item_id, quantity}]}` (gold is the item `gold`; at most 10 stacks),
+`POST /trades/current/accept`. Changing an offer withdraws both acceptances; when both have accepted, the server re-checks ownership,
+distance and capacity and swaps everything or nothing. Used pieces (with remaining durability) cannot be traded, so trading cannot
+make a worn tool new. Exchanges are deleted when they end and expire after five minutes; the partner is told by a `trade` event.
+
+**Building, farming, cooking, fishing (migration `0038_building_farming_fishing.sql`, `src/placing.rs`, `src/fishing.rs`,
+`etc/placeables.json`).** `POST /players/me/place` (`{"item_id", "x", "y", "z", "yaw"}`, metres from the planet's centre, within 4 m of the
+character, on dry land) puts a campfire, bedroll, workbench, anvil, tent or fence into the world; `POST /players/me/plant` does the
+same with a seed (`seed_carrot|corn|cabbage|pumpkin`). Things are rows of `placed_objects`, `GET /world/placed?x&y&z` lists them within
+150 m (public, like `/world/objects`; crops carry `growth` 0..1 and `ripe`, computed from the clock so offline time counts).
+`POST /placed/{id}/pickup` and `/harvest` are for the owner within reach (a ripe crop gives its produce and one seed, an unripe one
+gives the seed back). Recipes may name a `station` (`campfire`, `workbench`, `anvil`): a placed station of that kind within 4 m of
+the character, whoever owns it. `POST /players/me/fish` needs a fishing rod in hand and water within 6 m and catches a fish about
+every second cast. Limits: 40 things and 60 crops per character; nothing on water; spacing between things. Not implemented: protection
+of leased land, collision with placed things, storage chests, sleeping in a bed, soil quality or seasons for crops.
+
+**Magic (migration `0039_magic.sql`, `src/magic.rs`, `etc/spells.json`, ADR 0010).** Mana is a reserve of 0-100 that regenerates by the clock
+(0.4/s, stored with `mana_updated_at`, so offline time counts); it is part of `stats` (`mana`, `mana_max`). Spells are data (cost, cooldown,
+minimum level and one of the effects `heal`, `refresh`, `ward`, `bolt`) and are learned from scrolls for good: `POST /players/me/learn`
+(`{"item_id": "scroll_..."}`), `GET /players/me/spells` (known spells with `ready_in_ms`), `POST /players/me/cast` (`{"spell", "object_id"?}`).
+A bolt hits an animal in range like a weapon swing (drops, respawn, XP as in hunting) and avoids the bite of animals that would strike back in melee;
+a ward lets only half of a creature's bite through for a minute. Scrolls are crafted at a workbench from a rare quartz crystal and are not sold.
+No spell targets other players.
 
 ## Story datadisks
 

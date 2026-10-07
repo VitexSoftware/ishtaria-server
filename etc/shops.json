@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "daily_sell_limit_gold": 400,
+  "shops": {
+    "general": {
+      "sells": [
+        {
+          "item": "apple",
+          "price": 4
+        },
+        {
+          "item": "bread",
+          "price": 6
+        },
+        {
+          "item": "cheese",
+          "price": 8
+        },
+        {
+          "item": "carrot",
+          "price": 3
+        },
+        {
+          "item": "axe",
+          "price": 40
+        },
+        {
+          "item": "pickaxe",
+          "price": 40
+        },
+        {
+          "item": "sword",
+          "price": 90
+        },
+        {
+          "item": "dagger",
+          "price": 60
+        },
+        {
+          "item": "shield_round",
+          "price": 70
+        },
+        {
+          "item": "armor_leather",
+          "price": 120
+        },
+        {
+          "item": "glove",
+          "price": 25
+        },
+        {
+          "item": "seed_carrot",
+          "price": 6
+        },
+        {
+          "item": "seed_corn",
+          "price": 8
+        },
+        {
+          "item": "seed_cabbage",
+          "price": 6
+        },
+        {
+          "item": "seed_pumpkin",
+          "price": 10
+        },
+        {
+          "item": "fishing_rod",
+          "price": 35
+        }
+      ],
+      "buys": [
+        {
+          "item": "raw_meat",
+          "price": 3
+        },
+        {
+          "item": "hide",
+          "price": 5
+        },
+        {
+          "item": "bone",
+          "price": 2
+        },
+        {
+          "item": "iron_ore",
+          "price": 4
+        },
+        {
+          "item": "copper_ore",
+          "price": 4
+        },
+        {
+          "item": "iron_ingot",
+          "price": 14
+        },
+        {
+          "item": "pine_wood",
+          "price": 1
+        },
+        {
+          "item": "oak_wood",
+          "price": 1
+        },
+        {
+          "item": "pine_plank",
+          "price": 2
+        },
+        {
+          "item": "oak_plank",
+          "price": 2
+        },
+        {
+          "item": "stone",
+          "price": 1
+        },
+        {
+          "item": "stone_block",
+          "price": 3
+        },
+        {
+          "item": "apple",
+          "price": 1
+        },
+        {
+          "item": "carrot",
+          "price": 1
+        },
+        {
+          "item": "fish",
+          "price": 2
+        },
+        {
+          "item": "cooked_fish",
+          "price": 6
+        },
+        {
+          "item": "cooked_meat",
+          "price": 6
+        },
+        {
+          "item": "corn",
+          "price": 2
+        },
+        {
+          "item": "cabbage",
+          "price": 2
+        },
+        {
+          "item": "pumpkin",
+          "price": 4
+        }
+      ]
+    }
+  }
+}

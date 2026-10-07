@@ -511,6 +511,18 @@ fn every_world_grows_towns_with_graveyards_and_harbours_with_shipwrights() {
         .collect();
     assert!(!shipwrights.is_empty(), "coastal towns have a shipwright");
     assert!(story.dialogues.contains_key("harbours:shipwright"));
+    // Every town has a trader at its plaza who keeps the general shop.
+    let traders: Vec<_> = story
+        .npcs
+        .values()
+        .filter(|npc| npc.id.contains("trader"))
+        .collect();
+    assert!(!traders.is_empty(), "towns have a trader");
+    assert!(traders
+        .iter()
+        .all(|npc| npc.tags.contains(&"shop:general".to_owned())));
+    assert!(story.dialogues.contains_key("markets:trader"));
+    assert_eq!(story.strings["cs"]["markets:trader.name"], "Obchodník");
     assert_eq!(story.strings["cs"]["harbours:shipwright.name"], "Loďmistr");
     // The shop is plain dialogue: ships for gold, hidden while the player is poor.
     let dialogue = &story.dialogues["harbours:shipwright"];

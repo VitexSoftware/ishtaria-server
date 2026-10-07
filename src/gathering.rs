@@ -85,6 +85,9 @@ struct Recipe {
     /// Basic tool the character needs (for example the axe to chop logs).
     #[serde(default)]
     tool: Option<String>,
+    /// A placed object (a campfire, a workbench, an anvil) that must stand within reach.
+    #[serde(default)]
+    station: Option<String>,
     /// Experience for each item crafted.
     #[serde(default)]
     xp: i64,
@@ -465,6 +468,20 @@ async fn equip(
             sqlx::query("INSERT INTO player_equipment (player_id, offhand) VALUES ($1, $2) ON CONFLICT (player_id) DO UPDATE SET offhand = EXCLUDED.offhand")
                 .bind(player_id).bind(&input.item_id).execute(&mut *transaction).await?;
         }
+        // Armour goes where `etc/combat.json` says; armour it does not know cannot be worn.
+        Some("armor") => {
+            let armor = super::combat::armor(&input.item_id)
+                .ok_or_else(|| status(StatusCode::CONFLICT, "this item cannot be equipped"))?;
+            let sql = match armor.slot.as_str() {
+                "body" => "INSERT INTO player_equipment (player_id, body) VALUES ($1, $2) ON CONFLICT (player_id) DO UPDATE SET body = EXCLUDED.body",
+                _ => "INSERT INTO player_equipment (player_id, hands) VALUES ($1, $2) ON CONFLICT (player_id) DO UPDATE SET hands = EXCLUDED.hands",
+            };
+            sqlx::query(sql)
+                .bind(player_id)
+                .bind(&input.item_id)
+                .execute(&mut *transaction)
+                .await?;
+        }
         Some(_) => return Err(status(StatusCode::CONFLICT, "this item cannot be equipped")),
     }
     transaction.commit().await?;
@@ -474,7 +491,7 @@ async fn equip(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Slot {
-    /// `hand` (default) or `offhand`.
+    /// `hand` (default), `offhand`, `body` or `hands`.
     slot: Option<String>,
 }
 
@@ -488,6 +505,8 @@ async fn unequip(
     let sql = match input.slot.as_deref() {
         None | Some("hand") => "UPDATE player_equipment SET hand = NULL WHERE player_id = $1",
         Some("offhand") => "UPDATE player_equipment SET offhand = NULL WHERE player_id = $1",
+        Some("body") => "UPDATE player_equipment SET body = NULL WHERE player_id = $1",
+        Some("hands") => "UPDATE player_equipment SET hands = NULL WHERE player_id = $1",
         Some(_) => return Err(status(StatusCode::BAD_REQUEST, "invalid slot")),
     };
     sqlx::query(sql)
@@ -495,7 +514,7 @@ async fn unequip(
         .execute(&state.pool)
         .await?;
     sqlx::query(
-        "DELETE FROM player_equipment WHERE player_id = $1 AND hand IS NULL AND offhand IS NULL",
+        "DELETE FROM player_equipment WHERE player_id = $1 AND hand IS NULL AND offhand IS NULL AND body IS NULL AND hands IS NULL",
     )
     .bind(player_id)
     .execute(&state.pool)
@@ -595,6 +614,11 @@ async fn craft(
             return Err(status(StatusCode::CONFLICT, "required tool missing"));
         }
     }
+    if let Some(station) = recipe.station.as_deref() {
+        if !super::placing::station_near(&mut transaction, player_id, station).await? {
+            return Err(status(StatusCode::CONFLICT, "station missing"));
+        }
+    }
     for input in &recipe.inputs {
         let need = input.quantity * count;
         let owned: Option<i64> = sqlx::query_scalar(
@@ -634,6 +658,7 @@ async fn craft(
 struct RecipeInfo {
     id: String,
     tool: Option<String>,
+    station: Option<String>,
     inputs: Vec<RecipeItem>,
     outputs: Vec<RecipeItem>,
 }
@@ -669,6 +694,7 @@ async fn list_recipes(State(state): State<AppState>) -> Result<Json<Vec<RecipeIn
             .map(|recipe| RecipeInfo {
                 id: recipe.id.clone(),
                 tool: recipe.tool.clone(),
+                station: recipe.station.clone(),
                 inputs: describe(&recipe.inputs),
                 outputs: describe(&recipe.outputs),
             })
@@ -753,7 +779,19 @@ mod unit_tests {
             }
         }
         for recipe in &recipes().recipes {
-            assert!(recipe.tool.as_deref().is_none_or(|tool| tool == "axe"));
+            assert!(recipe
+                .tool
+                .as_deref()
+                .is_none_or(|tool| ["axe", "pickaxe"].contains(&tool)));
+            assert!(
+                recipe.station.as_deref().is_none_or(|station| {
+                    crate::placing::stations()
+                        .iter()
+                        .any(|known| known == station)
+                }),
+                "{} needs a station nobody can place",
+                recipe.id
+            );
             assert!(
                 !recipe.inputs.is_empty() && !recipe.outputs.is_empty(),
                 "{}",
