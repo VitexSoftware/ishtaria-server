@@ -31,6 +31,8 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const IDLE_BUCKET: Duration = Duration::from_secs(600);
 /// A hard bound on the memory of the limiter.
 const MAX_BUCKETS: usize = 200_000;
+/// A full table is cleaned of idle buckets at most this often (the cleaning visits every bucket).
+const SWEEP_EVERY: Duration = Duration::from_secs(10);
 /// Anything slower than this is logged even when the access log only reports problems.
 const SLOW_MS: u128 = 500;
 
@@ -96,6 +98,16 @@ struct Bucket {
     last: Instant,
 }
 
+/// The buckets and when the table was last cleaned.
+struct Buckets {
+    map: HashMap<(IpAddr, Class), Bucket>,
+    swept: Instant,
+}
+
+/// The address that clients share when the table is full of other addresses: a flood from many
+/// addresses then has to share one allowance instead of locking everybody else out.
+const OVERFLOW: IpAddr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AccessLog {
     Off,
@@ -107,7 +119,8 @@ enum AccessLog {
 pub(super) struct Guard {
     config: LimitsConfig,
     log: AccessLog,
-    buckets: Mutex<HashMap<(IpAddr, Class), Bucket>>,
+    buckets: Mutex<Buckets>,
+    max_buckets: usize,
     started: Instant,
     classes: [AtomicU64; 4],
     limited: AtomicU64,
@@ -144,7 +157,11 @@ impl Guard {
         Self {
             config,
             log,
-            buckets: Mutex::new(HashMap::new()),
+            buckets: Mutex::new(Buckets {
+                map: HashMap::new(),
+                swept: Instant::now(),
+            }),
+            max_buckets: MAX_BUCKETS,
             started: Instant::now(),
             classes: Default::default(),
             limited: AtomicU64::new(0),
@@ -170,18 +187,23 @@ impl Guard {
                 f64::from(self.config.requests_per_second.max(1)),
             ),
         };
-        let mut buckets = self
+        let mut table = self
             .buckets
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        if buckets.len() >= MAX_BUCKETS {
-            buckets.retain(|_, bucket| now.duration_since(bucket.last) < IDLE_BUCKET);
-            if buckets.len() >= MAX_BUCKETS {
-                // Under a flood from more addresses than the table holds, refuse the new ones.
-                return Err(Duration::from_secs(60));
+        let mut ip = ip;
+        if table.map.len() >= self.max_buckets && !table.map.contains_key(&(ip, class)) {
+            if now.duration_since(table.swept) >= SWEEP_EVERY {
+                table
+                    .map
+                    .retain(|_, bucket| now.duration_since(bucket.last) < IDLE_BUCKET);
+                table.swept = now;
+            }
+            if table.map.len() >= self.max_buckets {
+                ip = OVERFLOW;
             }
         }
-        let bucket = buckets.entry((ip, class)).or_insert(Bucket {
+        let bucket = table.map.entry((ip, class)).or_insert(Bucket {
             tokens: capacity,
             last: now,
         });
@@ -200,11 +222,14 @@ impl Guard {
 
     /// Forgets the buckets nobody has used for a while.
     fn sweep(&self, now: Instant) {
-        let mut buckets = self
+        let mut table = self
             .buckets
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        buckets.retain(|_, bucket| now.duration_since(bucket.last) < IDLE_BUCKET);
+        table
+            .map
+            .retain(|_, bucket| now.duration_since(bucket.last) < IDLE_BUCKET);
+        table.swept = now;
     }
 
     fn count_status(&self, status: StatusCode) {
@@ -369,20 +394,40 @@ fn class_of(method: &Method, path: &str) -> Option<Class> {
 /// `X-Forwarded-For` when the operator says a proxy of theirs sits in front.
 fn client_ip(request: &Request, trust_proxy: bool) -> IpAddr {
     if trust_proxy {
-        if let Some(address) = request
+        // The proxy appends the client it saw to the header. Take the last entry of the last
+        // header line: a line the client sent itself may stand before it, never after it.
+        let forwarded = request
             .headers()
-            .get("x-forwarded-for")
+            .get_all("x-forwarded-for")
+            .iter()
+            .next_back()
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.rsplit(',').next())
-            .and_then(|value| value.trim().parse::<IpAddr>().ok())
-        {
-            return address;
+            .and_then(|value| value.trim().parse::<IpAddr>().ok());
+        if let Some(address) = forwarded {
+            return network_of(address);
         }
     }
     request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
-        .map_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED), |info| info.0.ip())
+        .map_or(OVERFLOW, |info| network_of(info.0.ip()))
+}
+
+/// What a limit is kept for: an IPv4 address, or the /64 network of an IPv6 address (one subscriber
+/// has the whole network, so counting single addresses would let them rotate through 2^64 of them).
+/// An IPv4 address written as IPv6 (`::ffff:1.2.3.4`) is the IPv4 address.
+fn network_of(address: IpAddr) -> IpAddr {
+    match address.to_canonical() {
+        IpAddr::V6(v6) => {
+            let mut segments = v6.segments();
+            for segment in &mut segments[4..] {
+                *segment = 0;
+            }
+            IpAddr::V6(std::net::Ipv6Addr::from(segments))
+        }
+        v4 => v4,
+    }
 }
 
 fn refusal(retry_after: Duration) -> Response {
@@ -456,7 +501,8 @@ pub(super) async fn metrics(State(state): State<AppState>, request: Request) -> 
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|info| info.0.ip());
-    let loopback = peer.is_some_and(|ip| ip.is_loopback()) && !guard.config.trust_proxy;
+    let loopback =
+        peer.is_some_and(|ip| ip.to_canonical().is_loopback()) && !guard.config.trust_proxy;
     let presented = request
         .headers()
         .get(header::AUTHORIZATION)
@@ -547,7 +593,85 @@ mod tests {
         let start = Instant::now();
         guard.take(address(1), Class::General, start).unwrap();
         guard.sweep(start + IDLE_BUCKET + Duration::from_secs(1));
-        assert!(guard.buckets.lock().unwrap().is_empty());
+        assert!(guard.buckets.lock().unwrap().map.is_empty());
+    }
+
+    #[test]
+    fn a_full_table_neither_locks_out_new_addresses_nor_grows() {
+        let mut guard = Guard::new(LimitsConfig::default());
+        guard.max_buckets = 3;
+        let start = Instant::now();
+        for last in 1..=3 {
+            guard.take(address(last), Class::General, start).unwrap();
+        }
+        // More addresses than the table holds share one allowance and are not refused outright.
+        for last in 4..=20 {
+            assert!(guard.take(address(last), Class::General, start).is_ok());
+        }
+        assert!(
+            guard.buckets.lock().unwrap().map.len() <= 4,
+            "the table does not grow"
+        );
+        // Known addresses keep their own buckets, and idle ones make room again.
+        assert!(guard.take(address(1), Class::General, start).is_ok());
+        let later = start + IDLE_BUCKET + SWEEP_EVERY + Duration::from_secs(1);
+        assert!(guard.take(address(30), Class::General, later).is_ok());
+        assert!(guard
+            .buckets
+            .lock()
+            .unwrap()
+            .map
+            .contains_key(&(address(30), Class::General)));
+    }
+
+    #[test]
+    fn an_ipv6_network_is_one_client_and_a_mapped_address_is_the_ipv4_one() {
+        let a: IpAddr = "2001:db8:1:2:aaaa:bbbb:cccc:dddd".parse().unwrap();
+        let b: IpAddr = "2001:db8:1:2:1111:2222:3333:4444".parse().unwrap();
+        let c: IpAddr = "2001:db8:1:3::1".parse().unwrap();
+        assert_eq!(network_of(a), network_of(b), "one /64 is one client");
+        assert_ne!(
+            network_of(a),
+            network_of(c),
+            "another /64 is another client"
+        );
+        let mapped: IpAddr = "::ffff:192.0.2.1".parse().unwrap();
+        assert_eq!(network_of(mapped), "192.0.2.1".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn only_the_last_forwarded_entry_of_the_last_line_counts() {
+        let request = |lines: &[&str]| {
+            let mut builder = Request::builder().uri("/world");
+            for line in lines {
+                builder = builder.header("x-forwarded-for", *line);
+            }
+            builder.body(axum::body::Body::empty()).unwrap()
+        };
+        let ip = |text: &str| text.parse::<IpAddr>().unwrap();
+        assert_eq!(
+            client_ip(&request(&["198.51.100.1, 192.0.2.10"]), true),
+            ip("192.0.2.10")
+        );
+        // A client that sends a header of its own: the proxy adds its line after it.
+        assert_eq!(
+            client_ip(&request(&["1.2.3.4", "192.0.2.10"]), true),
+            ip("192.0.2.10")
+        );
+        assert_eq!(
+            client_ip(
+                &request(&["1.2.3.4, 5.6.7.8", "192.0.2.77, 192.0.2.10"]),
+                true
+            ),
+            ip("192.0.2.10")
+        );
+        // Not trusted: the header is ignored; garbage falls back to the connection.
+        assert_eq!(client_ip(&request(&["192.0.2.10"]), false), OVERFLOW);
+        assert_eq!(client_ip(&request(&["not an address"]), true), OVERFLOW);
+        assert_eq!(
+            client_ip(&request(&["::ffff:203.0.113.9"]), true),
+            ip("203.0.113.9")
+        );
     }
 
     #[test]
