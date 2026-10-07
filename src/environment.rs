@@ -1,3 +1,6 @@
+//! Local relief and spawning: the gentle hills laid over the imported map, and where a new
+//! character may appear (dry, temperate land away from water).
+
 use rand::{rngs::OsRng, seq::IteratorRandom};
 use serde::Serialize;
 use std::{cmp::Reverse, collections::BinaryHeap};

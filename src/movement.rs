@@ -1,3 +1,7 @@
+//! Server-authoritative movement: walking, running and jumping projected onto the terrain,
+//! collision with generated objects, and the generated objects, animals and their routes that
+//! `GET /world/objects` sends to clients.
+
 use super::{environment, players, AppState};
 use axum::{
     extract::{Query, State},

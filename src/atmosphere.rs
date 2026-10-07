@@ -1,3 +1,6 @@
+//! The sun above the planet: where it stands at a moment, announced to clients with the world
+//! (`GET /world`) so that every client draws the same day and night.
+
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 

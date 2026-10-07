@@ -1,3 +1,6 @@
+//! Accounts and characters: registration, login (Argon2id), expiring sessions, the profile that
+//! every action answers with, and equipment.
+
 use super::movement::Position;
 use super::{ApiError, AppState};
 use argon2::{

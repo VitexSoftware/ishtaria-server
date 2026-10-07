@@ -1,3 +1,5 @@
+//! Height maps: reading, validating and hashing the imported faces of the planet.
+
 use anyhow::{bail, Context, Result};
 use image::{ColorType, ImageFormat, ImageReader, Limits};
 use sha2::{Digest, Sha256};

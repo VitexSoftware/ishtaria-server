@@ -1,3 +1,6 @@
+//! The reserves of a character (health, stamina, water, food), eating and drinking, damage,
+//! permanent death, graves, looting and obituaries.
+
 use super::{players, AppState};
 use axum::{
     extract::{Path, State},

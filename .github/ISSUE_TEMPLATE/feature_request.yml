@@ -1,0 +1,20 @@
+name: Idea or feature
+description: A mechanic, an item, a quest, a tool that would make the game better
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to add, and what is the player's experience of it?
+    validations:
+      required: true
+  - type: textarea
+    id: rules
+    attributes:
+      label: Does it fit the rules?
+      description: The server decides, content is data, money buys no power, death is permanent. Say how it fits or why a rule should change (that needs a decision record).
+  - type: dropdown
+    id: help
+    attributes:
+      label: Will you work on it?
+      options: ["Yes, with Claude Code", "Yes, by hand", "No, it is only an idea"]

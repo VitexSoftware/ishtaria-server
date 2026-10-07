@@ -1,3 +1,7 @@
+//! `ishtaria-server`: configuration, the HTTP router and start-up (migrations, world import).
+//! Each gameplay area is a module with its own `routes()` merged here; see the developer tour in
+//! the documentation (`development/server-tour`).
+
 mod atmosphere;
 mod chat;
 mod combat;
